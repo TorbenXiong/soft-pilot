@@ -67,15 +67,22 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
 
                 await _stateStore.SetCurrentAsync(kind, version, cancellationToken);
             }
-            catch
+            catch (Exception operationException)
             {
-                if (previous is not null)
+                try
                 {
-                    await _links.ReplaceAsync(link, previous.InstallPath, cancellationToken);
+                    if (previous is not null)
+                    {
+                        await _links.ReplaceAsync(link, previous.InstallPath, CancellationToken.None);
+                    }
+                    else
+                    {
+                        _links.Delete(link);
+                    }
                 }
-                else
+                catch (Exception rollbackException)
                 {
-                    _links.Delete(link);
+                    throw CreateRollbackException("切换全局运行时", operationException, rollbackException);
                 }
 
                 throw;
@@ -93,8 +100,29 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _links.Delete(_layout.GetCurrentLink(kind));
-            await _stateStore.SetCurrentAsync(kind, null, cancellationToken);
+            var previous = (await GetCurrentAsync(cancellationToken))[kind];
+            var link = _layout.GetCurrentLink(kind);
+            _links.Delete(link);
+            try
+            {
+                await _stateStore.SetCurrentAsync(kind, null, cancellationToken);
+            }
+            catch (Exception operationException)
+            {
+                if (previous is not null)
+                {
+                    try
+                    {
+                        await _links.ReplaceAsync(link, previous.InstallPath, CancellationToken.None);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        throw CreateRollbackException("清除全局运行时", operationException, rollbackException);
+                    }
+                }
+
+                throw;
+            }
         }
         finally
         {
@@ -109,5 +137,21 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
         return Enum.GetValues<RuntimeKind>().ToDictionary(
             kind => kind,
             kind => installations.FirstOrDefault(installation => installation.Kind == kind && installation.IsCurrent));
+    }
+
+    private static GlobalRuntimeRollbackException CreateRollbackException(
+        string operation,
+        Exception operationException,
+        Exception rollbackException) =>
+        new(
+            $"{operation}失败，且未能恢复原状态。请运行 spt doctor 并检查 current 链接。",
+            new AggregateException(operationException, rollbackException));
+}
+
+internal sealed class GlobalRuntimeRollbackException : SoftPilotException
+{
+    public GlobalRuntimeRollbackException(string message, Exception innerException)
+        : base(message, innerException)
+    {
     }
 }

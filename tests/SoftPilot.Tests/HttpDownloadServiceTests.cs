@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using SoftPilot.Application;
 using SoftPilot.Infrastructure.IO;
 
 namespace SoftPilot.Tests;
@@ -28,12 +29,63 @@ public sealed class HttpDownloadServiceTests
         Assert.IsEmpty(Directory.EnumerateFiles(sandbox.Path, "*.partial"));
     }
 
+    [TestMethod]
+    public async Task DownloadAsync_WhenHashDoesNotMatch_RejectsFileAndRemovesPartialContent()
+    {
+        using var sandbox = new TemporaryDirectory();
+        var content = "tampered runtime"u8.ToArray();
+        using var client = new HttpClient(new StaticContentHandler(content));
+        var service = new HttpDownloadService(client);
+        var destination = Path.Combine(sandbox.Path, "runtime.zip");
+
+        await Assert.ThrowsAsync<IntegrityException>(() => service.DownloadAsync(
+            new Uri("https://example.test/runtime.zip"),
+            destination,
+            new string('0', 64)));
+
+        Assert.IsFalse(File.Exists(destination));
+        Assert.IsEmpty(Directory.EnumerateFiles(sandbox.Path, "*.partial"));
+    }
+
+    [TestMethod]
+    public async Task DownloadAsync_WhenSourceIsNotHttps_RejectsBeforeSendingRequest()
+    {
+        using var sandbox = new TemporaryDirectory();
+        var handler = new StaticContentHandler("runtime"u8.ToArray());
+        using var client = new HttpClient(handler);
+        var service = new HttpDownloadService(client);
+
+        await Assert.ThrowsAsync<IntegrityException>(() => service.DownloadAsync(
+            new Uri("http://example.test/runtime.zip"),
+            Path.Combine(sandbox.Path, "runtime.zip")));
+
+        Assert.AreEqual(0, handler.RequestCount);
+    }
+
+    [TestMethod]
+    public async Task DownloadAsync_WhenRedirectedAddressIsNotHttps_RejectsResponse()
+    {
+        using var sandbox = new TemporaryDirectory();
+        using var client = new HttpClient(new RedirectedAddressHandler(new Uri("http://cdn.example.test/runtime.zip")));
+        var service = new HttpDownloadService(client);
+        var destination = Path.Combine(sandbox.Path, "runtime.zip");
+
+        await Assert.ThrowsAsync<IntegrityException>(() => service.DownloadAsync(
+            new Uri("https://example.test/runtime.zip"),
+            destination));
+
+        Assert.IsFalse(File.Exists(destination));
+    }
+
     private sealed class StaticContentHandler(byte[] content) : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            RequestCount++;
             var response = new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new ByteArrayContent(content),
@@ -41,5 +93,17 @@ public sealed class HttpDownloadServiceTests
             };
             return Task.FromResult(response);
         }
+    }
+
+    private sealed class RedirectedAddressHandler(Uri finalAddress) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent("runtime"u8.ToArray()),
+                RequestMessage = new HttpRequestMessage(HttpMethod.Get, finalAddress),
+            });
     }
 }

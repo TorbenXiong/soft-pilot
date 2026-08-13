@@ -13,6 +13,7 @@ public sealed class WindowsDirectoryLinkService
 
     public async Task ReplaceAsync(string linkPath, string targetPath, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!Directory.Exists(targetPath))
         {
             throw new DirectoryNotFoundException(targetPath);

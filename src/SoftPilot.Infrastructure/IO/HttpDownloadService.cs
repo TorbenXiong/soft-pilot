@@ -33,6 +33,13 @@ public sealed class HttpDownloadService : IDownloadService
         try
         {
             using var response = await _client.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var finalAddress = response.RequestMessage?.RequestUri ?? source;
+            if (!string.Equals(finalAddress.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IntegrityException(
+                    $"下载地址重定向到了非 HTTPS 地址：{finalAddress.GetLeftPart(UriPartial.Path)}");
+            }
+
             if (response.StatusCode is HttpStatusCode.Moved or HttpStatusCode.Redirect or HttpStatusCode.RedirectMethod or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)
             {
                 throw new HttpRequestException("下载服务不接受未解析的重定向响应。");

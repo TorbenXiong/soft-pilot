@@ -38,6 +38,13 @@ internal static class ProviderUtilities
         }
 
         using var response = await client.GetAsync(uri, cancellationToken);
+        var finalAddress = response.RequestMessage?.RequestUri ?? uri;
+        if (!string.Equals(finalAddress.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IntegrityException(
+                $"官方元数据重定向到了非 HTTPS 地址：{finalAddress.GetLeftPart(UriPartial.Path)}");
+        }
+
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(cancellationToken);
     }
