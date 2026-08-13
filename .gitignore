@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+.idea/
+TestResults/
+artifacts/
+*.user
+*.suo
+*.pfx
+*.snk
+*.msi
+*.wixpdb
+*.log
