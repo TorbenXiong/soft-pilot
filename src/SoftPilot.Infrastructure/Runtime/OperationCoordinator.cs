@@ -86,7 +86,31 @@ public sealed class OperationCoordinator : IOperationCoordinator
 
                 if (makeCurrent)
                 {
-                    await _globalRuntimeService.UseWithinWorkspaceLockAsync(target.Kind, release.Version, operationToken);
+                    try
+                    {
+                        await _globalRuntimeService.UseWithinWorkspaceLockAsync(target.Kind, release.Version, operationToken);
+                    }
+                    catch (GlobalRuntimeRollbackException)
+                    {
+                        // The current link may still reference this runtime. Preserve the installation
+                        // so doctor and a later repair do not encounter a dangling link.
+                        throw;
+                    }
+                    catch (Exception operationException)
+                    {
+                        try
+                        {
+                            await RollbackInstalledRuntimeAsync(installation, stagingDirectory);
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            throw new SoftPilotException(
+                                $"{target} 已安装但切换失败，且未能完整撤销安装。请运行 spt doctor 检查状态。",
+                                new AggregateException(operationException, rollbackException));
+                        }
+
+                        throw;
+                    }
                 }
             }
             finally
@@ -163,17 +187,29 @@ public sealed class OperationCoordinator : IOperationCoordinator
 
     public async Task PurgeExpiredTrashAsync(TimeSpan retention, CancellationToken cancellationToken = default)
     {
-        var installations = await _stateStore.GetInstallationsAsync(includeDeleted: true, cancellationToken);
-        foreach (var installation in installations.Where(item =>
-                     item.IsDeleted && item.DeletedAt is not null && DateTimeOffset.UtcNow - item.DeletedAt.Value > retention))
+        await using var workspaceLease = await _workspaceLock.AcquireAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (installation.TrashPath is not null && Directory.Exists(installation.TrashPath))
+            var installations = await _stateStore.GetInstallationsAsync(includeDeleted: true, cancellationToken);
+            foreach (var installation in installations.Where(item =>
+                         item.IsDeleted && item.DeletedAt is not null && DateTimeOffset.UtcNow - item.DeletedAt.Value > retention))
             {
-                Directory.Delete(installation.TrashPath, recursive: true);
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (installation.TrashPath is not null && Directory.Exists(installation.TrashPath))
+                {
+                    Directory.Delete(installation.TrashPath, recursive: true);
+                }
 
-            await _stateStore.DeleteInstallationAsync(installation.Kind, installation.Version, cancellationToken);
+                await _stateStore.DeleteInstallationAsync(
+                    installation.Kind,
+                    installation.Version,
+                    CancellationToken.None);
+            }
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
@@ -196,7 +232,10 @@ public sealed class OperationCoordinator : IOperationCoordinator
         {
             await _stateStore.AddOperationAsync(operation, cancellationToken);
             await action(cancellationToken);
-            await _stateStore.CompleteOperationAsync(operation.Id, OperationStatus.Succeeded, cancellationToken: cancellationToken);
+            await _stateStore.CompleteOperationAsync(
+                operation.Id,
+                OperationStatus.Succeeded,
+                cancellationToken: CancellationToken.None);
         }
         catch (OperationCanceledException)
         {
@@ -260,6 +299,41 @@ public sealed class OperationCoordinator : IOperationCoordinator
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(150 * (1 << attempt)), cancellationToken);
             }
+        }
+    }
+
+    private async Task RollbackInstalledRuntimeAsync(
+        RuntimeInstallation installation,
+        string stagingDirectory)
+    {
+        await MoveDirectoryWithRetryAsync(
+            installation.InstallPath,
+            stagingDirectory,
+            CancellationToken.None);
+        try
+        {
+            await _stateStore.DeleteInstallationAsync(
+                installation.Kind,
+                installation.Version,
+                CancellationToken.None);
+        }
+        catch (Exception stateException)
+        {
+            try
+            {
+                await MoveDirectoryWithRetryAsync(
+                    stagingDirectory,
+                    installation.InstallPath,
+                    CancellationToken.None);
+            }
+            catch (Exception directoryException)
+            {
+                throw new SoftPilotException(
+                    $"撤销 {installation.Kind.ToString().ToLowerInvariant()}@{installation.Version} 的状态记录失败，且未能恢复运行时目录。",
+                    new AggregateException(stateException, directoryException));
+            }
+
+            throw;
         }
     }
 }
