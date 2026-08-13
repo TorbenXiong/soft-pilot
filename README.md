@@ -35,14 +35,14 @@ dotnet test tests/SoftPilot.Tests/SoftPilot.Tests.csproj -c Release --no-build -
 `eng/package.ps1` 发布自包含的 GUI、CLI、shim 和卸载器，创建 SHA-256 负载清单，最后将负载嵌入单文件安装器。
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.2
 ```
 
 生产发布应提供当前用户证书存储中的代码签名证书指纹：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 `
-  -Version 0.0.1 `
+  -Version 0.0.2 `
   -CertificateThumbprint '<SHA1 thumbprint>'
 ```
 
