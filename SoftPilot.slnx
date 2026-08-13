@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SoftPilot.Domain/SoftPilot.Domain.csproj" />
+    <Project Path="src/SoftPilot.Application/SoftPilot.Application.csproj" />
+    <Project Path="src/SoftPilot.Infrastructure/SoftPilot.Infrastructure.csproj" />
+    <Project Path="src/SoftPilot.Cli/SoftPilot.Cli.csproj" />
+    <Project Path="src/SoftPilot.Shim/SoftPilot.Shim.csproj" />
+    <Project Path="src/SoftPilot.Gui/SoftPilot.Gui.csproj" />
+    <Project Path="src/SoftPilot.Setup/SoftPilot.Setup.csproj" />
+    <Project Path="src/SoftPilot.Uninstall/SoftPilot.Uninstall.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SoftPilot.Tests/SoftPilot.Tests.csproj" />
+  </Folder>
+</Solution>
