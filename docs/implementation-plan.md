@@ -3,7 +3,7 @@
 状态：执行中
 计划版本：1.0
 最后更新：2026-08-14
-下一任务：完成三平台 CI 首次原生运行并核对结果
+下一任务：生成三平台自包含 spike 发布物并执行干净环境验证
 
 本计划只记录当前唯一维护主线。M0 的详细技术决策、试验过程和 Windows 验证结果已归档至 [`archive/m0-plugin-platform-spike-2026-08.md`](archive/m0-plugin-platform-spike-2026-08.md)。
 
@@ -14,13 +14,13 @@
 - [x] 真实 lifecycle Component 及 imports、trap、fuel、内存边界测试。
 - [x] Slint 工作区选择 GUI 与 Windows 原生平台探针。
 - [x] 仓库已只保留 Rust + Slint + Wasmtime 插件平台主线，Cargo workspace 位于根目录。
-- [~] Windows、macOS ARM64/x64、Ubuntu x64 CI 已实现；远端原生结果待 workflow 首次运行。
+- [x] Windows、macOS ARM64/x64、Ubuntu x64 CI 已实现并通过 [首次完整原生验证](https://github.com/TorbenXiong/soft-pilot/actions/runs/31786758516)。
 
 ## 2. 当前阶段：平台基础收口
 
-- [ ] 在 GitHub 原生 runner 执行 format、check、Clippy、测试、Component 专项套件和平台探针。
-- [ ] 核对同一 Component 在 Windows、macOS ARM64/x64 和 Ubuntu x64 返回一致 descriptor。
-- [ ] 修复真实 runner 暴露的平台差异，并将三平台验证标记完成。
+- [x] 在 GitHub 原生 runner 执行 format、check、Clippy、测试、Component 专项套件和平台探针。
+- [x] 核对同一 Component 在 Windows、macOS ARM64/x64 和 Ubuntu x64 返回一致 descriptor。
+- [x] 修复真实 runner 暴露的平台差异，并将三平台验证标记完成。
 - [ ] 生成三平台自包含 spike 发布物。
 - [ ] 在干净环境验证无需预装语言运行时，并记录包体、动态依赖、启动和替换结果。
 
@@ -75,9 +75,9 @@
 
 ## 4. 下一执行队列
 
-1. 经单次 Git 提交与推送确认后运行 `.github/workflows/ci.yml`。
-2. 完成平台基础 Gate。
-3. 实施三平台自包含发布物与干净环境验证。
+1. 生成 Windows x64、macOS ARM64/x64 和 Ubuntu x64 自包含 spike 发布物。
+2. 在干净 runner 验证无需预装语言运行时，并记录包体、动态依赖、启动和替换结果。
+3. 完成平台基础 Gate。
 4. 进入 M1，先完成工作区路径、host triple 与跨进程锁。
 
 ## 5. 决策队列
