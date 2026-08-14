@@ -129,10 +129,10 @@ function Invoke-SoftPilot {
         [string] $Description
     )
 
-    $isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+    $runningOnWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
         [System.Runtime.InteropServices.OSPlatform]::Windows
     )
-    if ($isWindows) {
+    if ($runningOnWindows) {
         $quotedArguments = @($ArgumentList | ForEach-Object {
                 '"' + $_.Replace('"', '\"') + '"'
             })
