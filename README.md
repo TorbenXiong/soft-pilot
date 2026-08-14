@@ -78,13 +78,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\test-lifecycle-com
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\test-windows-spike.ps1
 ```
 
-跨平台原生 runner 使用统一探针入口：
+当前仓库不配置 GitHub Actions 或其他自动 CI/CD，开发阶段由维护者在 Windows 本地按需执行上述检查。跨平台探针入口继续保留，供未来恢复对应平台验收时使用：
 
 ```powershell
 pwsh -NoProfile -File ./eng/test-platform-spike.ps1
 ```
 
-Linux CI 启动隔离的 Xvfb 并使用 `SLINT_BACKEND=winit-software`。完整 Windows 构建需要 MSVC Build Tools；三平台矩阵定义在 `.github/workflows/ci.yml`。
+完整 Windows 构建需要 MSVC Build Tools。自动 CI、Artifact 和发布流程将在项目进入生产加固阶段后重新评估，恢复前不得将未执行的远端检查标记为通过。
 
 ### 自包含发布 spike
 
@@ -99,7 +99,7 @@ Linux CI 启动隔离的 Xvfb 并使用 `SLINT_BACKEND=winit-software`。完整 
 
 脚本分别生成 Windows 单文件 `SoftPilot.exe`、包含 `SoftPilot.app` 的 macOS ZIP 传输包和 Linux 单文件 AppImage，并同时写出 `SHA256SUMS.txt` 与动态依赖元数据。Component fixture 和验证脚本位于单独的验证载荷中，不进入主发布物。
 
-`.github/workflows/release-spike.yml` 在四个原生构建 Runner 产出 CI Artifact，再交给不安装 Rust 的独立 Runner 验证启动、Slint 窗口、工作区选择、Component descriptor、子进程、文件锁、目录链接和主发布物替换。当前发布物仅用于 M0 技术验证，尚未签名、公证或作为正式 Release 发布。
+打包和发布物验证脚本继续作为本地工具保留；自动构建、CI Artifact 和干净 Runner workflow 当前已停用。当前发布物仅用于 M0 技术验证，尚未签名、公证或作为正式 Release 发布。
 
 四个平台的实际包体、SHA-256、动态系统依赖和干净 Runner 验证结果见 [M0 自包含发布物验证记录](docs/archive/m0-release-spike-2026-08.md)。
 

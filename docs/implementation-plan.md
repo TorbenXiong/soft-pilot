@@ -10,12 +10,12 @@
 ## 1. 初版 Windows-first 策略
 
 - 初版核心的实现、人工验收和阶段 Gate 以 Windows x64 为唯一强制目标平台。
-- M2 至 M7 的新增能力只要求 Windows 原生实现、自动化验证和人工验收；不新增或扩展 macOS、Linux 专用代码与 CI。
-- 现有 macOS ARM64/x64、Linux x64 代码、host triple 和发布脚本暂时保留；非 Windows CI 矩阵停用，也不据此承诺后续新增能力持续保持跨平台可用。
+- M2 至 M5 的新增能力只要求 Windows 原生实现、本地自动化验证和人工验收；当前不建设或运行 CI/CD，也不新增或扩展 macOS、Linux 专用代码。
+- 现有 macOS ARM64/x64、Linux x64 代码、host triple 和发布脚本暂时保留；GitHub Actions workflow 已移除，也不据此承诺后续新增能力持续保持跨平台可用。
 - M0 已通过的三平台结果只作为当时版本的历史基线；没有对应原生环境复验的后续版本不得标记为 macOS 或 Linux 已验证。
 - 核心模型、插件 ABI、工作区 host 隔离和依赖方向继续保持平台中立；Windows 平台差异放在入口或平台适配层，避免将来恢复其他平台时重写事务与插件核心。
 - macOS 与 Linux 的实现补齐、原生 CI、人工验收和发布要求统一后置到 M8，待明确重新启用后执行。
-- 常规 CI 与 release spike 当前只运行 Windows 2025 x64 job；macOS、Linux Runner 在 M8 明确重新启用前不再消耗 CI 用量。
+- M6 之前仅执行本地验证，不运行自动 CI、Artifact 或部署任务；到达生产加固阶段后，先单独评估成本、Runner、必需检查和发布权限，再决定是否恢复 Windows CI/CD。
 
 ## 2. 当前基线
 
@@ -91,6 +91,7 @@
 ### M6：仓库、发布与生产加固
 
 - TUF 信任根、发布者身份、撤销、过期、回滚和密钥轮换。
+- 重新评估 Windows CI/CD 的触发范围、Runner 成本、必需检查、Artifact 保留期和发布权限；取得明确确认后再建立自动化 workflow。
 - Windows 签名与发布物验证。
 - Windows 主程序原子替换、回滚、SBOM、来源证明和发布冒烟矩阵。
 - macOS 签名与公证、Linux AppImage 签名及对应发布矩阵后置到 M8。
@@ -114,7 +115,7 @@
 
 1. 按 Windows-first 策略执行 `M2-01`，先定义不执行任意代码的 recipe、来源、artifact 完整性和安装计划值对象。
 2. 在新增 HTTP、归档或签名依赖前完成 M2-D1 精确版本决策并单独确认。
-3. M2 至 M7 不新增 macOS、Linux 专用实现或 CI；保持核心平台中立，并将发现的平台差异登记到 M8。
+3. M2 至 M5 不建设 CI/CD；验证在 Windows 本地执行，同时保持核心平台中立，并将发现的非 Windows 平台差异登记到 M8。
 
 ## 6. 决策队列
 
@@ -124,6 +125,7 @@
 - M2-D1：HTTP、哈希、签名和归档 crate 的精确版本。
 - M2-D2：第一个首方真实软件插件。
 - M4-D1：Python Windows 供应链方案；macOS、Linux 供应链后置到 M8。
+- M6-D1：恢复 Windows CI/CD 的成熟度标准、触发范围、Runner 成本预算、必需检查和 Artifact 保留策略。
 - M8-D1：恢复 macOS、Linux 支持时的目标版本、Runner、人工验收环境和 CI 必需检查范围。
 
 上述事项涉及新依赖、下载、系统环境或外部服务时，实施前单独确认。
