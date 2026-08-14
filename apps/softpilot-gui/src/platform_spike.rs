@@ -61,6 +61,16 @@ fn run_platform_spike(component_path: &Path) -> Result<(), Box<dyn std::error::E
 
     let bytes = fs::read(component_path)?;
     let descriptor = inspect_component_descriptor(&bytes)?;
+    if descriptor.id != "dev.softpilot.lifecycle-fixture"
+        || descriptor.version != "0.1.0"
+        || descriptor.plugin_api != "0.1.0"
+    {
+        return Err(format!(
+            "unexpected Component descriptor: {} {} api {}",
+            descriptor.id, descriptor.version, descriptor.plugin_api
+        )
+        .into());
+    }
 
     println!("child-process: ok");
     println!("cross-process-lock: ok");

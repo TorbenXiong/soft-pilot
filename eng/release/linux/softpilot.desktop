@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=SoftPilot
+Comment=Cross-platform software and tool plugin host
+Exec=SoftPilot
+Icon=softpilot
+Terminal=false
+Categories=Utility;

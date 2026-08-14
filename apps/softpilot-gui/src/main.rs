@@ -33,6 +33,9 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error
     let window_smoke = arguments
         .first()
         .is_some_and(|argument| argument == "--window-smoke");
+    let workspace_smoke = arguments
+        .first()
+        .is_some_and(|argument| argument == "--workspace-smoke");
 
     let window = MainWindow::new()?;
     let initial_directory = default_directory()?;
@@ -73,6 +76,24 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error
             }
         }
     });
+
+    if workspace_smoke {
+        let selected = arguments
+            .get(1)
+            .ok_or("--workspace-smoke requires a workspace directory")?;
+        let selected = PathBuf::from(selected);
+        show_directory(&window, &selected);
+        window.invoke_select_workspace(selected.to_string_lossy().into_owned().into());
+
+        let expected = format!("已选择工作区：{}", selected.display());
+        let actual = window.get_status_text();
+        if actual.as_str() != expected.as_str() {
+            return Err(format!("workspace selection returned unexpected status: {actual}").into());
+        }
+
+        println!("workspace-selection: ok");
+        return Ok(());
+    }
 
     if window_smoke {
         slint::Timer::single_shot(Duration::from_millis(500), || {
