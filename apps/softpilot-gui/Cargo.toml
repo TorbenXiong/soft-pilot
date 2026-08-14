@@ -9,6 +9,7 @@ build = "build.rs"
 
 [dependencies]
 slint.workspace = true
+softpilot-engine = { path = "../../crates/softpilot-engine" }
 softpilot-plugin-api = { path = "../../crates/softpilot-plugin-api" }
 
 [build-dependencies]

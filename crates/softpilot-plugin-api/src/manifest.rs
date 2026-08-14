@@ -1,12 +1,12 @@
 use std::{collections::BTreeSet, path::Path};
 
-use semver::Version;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use softpilot_core::{PlatformTarget, PluginId};
 use thiserror::Error;
 
-const SUPPORTED_SCHEMA_VERSION: &str = "0.1.0";
-const SUPPORTED_PLUGIN_API: &str = "0.1.0";
+pub(crate) const SUPPORTED_SCHEMA_VERSION: &str = "0.1.0";
+pub(crate) const SUPPORTED_PLUGIN_API: &str = "0.1.0";
 
 /// A validated plugin manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +82,12 @@ impl PluginManifest {
         require_bounded("license", &self.license, 80)?;
         if let Some(host_version) = &self.host_version {
             require_bounded("hostVersion", host_version, 128)?;
+            VersionReq::parse(host_version).map_err(|source| {
+                ManifestError::InvalidHostVersionRequirement {
+                    value: host_version.clone(),
+                    source,
+                }
+            })?;
         }
         if let Some(url) = &self.publisher.url {
             validate_https_url(url)?;
@@ -163,7 +169,7 @@ pub struct Publisher {
 }
 
 /// Software category managed by a plugin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PluginKind {
     /// Language or execution runtime.
@@ -179,7 +185,7 @@ pub enum PluginKind {
 }
 
 /// Software management scope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ManagementLevel {
     /// Fully isolated under the selected workspace.
@@ -254,7 +260,7 @@ pub struct NetworkPermissions {
 }
 
 /// Process execution scopes available to a plugin plan.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessPermission {
     /// Execute inside the isolated staging directory.
@@ -264,7 +270,7 @@ pub enum ProcessPermission {
 }
 
 /// Shell contribution capabilities.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ShellPermission {
     /// Add workspace-managed PATH entries.
@@ -276,7 +282,7 @@ pub enum ShellPermission {
 }
 
 /// Operating-system integration capabilities.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperatingSystemPermission {
     /// Create a shortcut.
@@ -348,6 +354,23 @@ pub enum ManifestError {
     /// A network permission was not a strict HTTPS origin.
     #[error("network permission must be an HTTPS origin without path, query, or fragment: {0}")]
     InvalidHttpsOrigin(String),
+    /// A valid origin was not written in its stable lowercase/default-port form.
+    #[error("network permission origin is not canonical; use {canonical} instead of {actual}")]
+    NonCanonicalHttpsOrigin {
+        /// Origin supplied by the manifest.
+        actual: String,
+        /// Stable origin used for permission identity.
+        canonical: String,
+    },
+    /// The optional host compatibility range is not valid semver requirement syntax.
+    #[error("hostVersion is not a valid semantic version requirement: {value}: {source}")]
+    InvalidHostVersionRequirement {
+        /// Requirement text supplied by the manifest.
+        value: String,
+        /// Parser failure.
+        #[source]
+        source: semver::Error,
+    },
     /// A publisher URL was not HTTPS.
     #[error("publisher URL must be an absolute HTTPS URL: {0}")]
     InvalidHttpsUrl(String),
@@ -449,30 +472,64 @@ fn validate_https_origin(value: &str) -> Result<(), ManifestError> {
     let Some(authority) = value.strip_prefix("https://") else {
         return Err(ManifestError::InvalidHttpsOrigin(value.to_owned()));
     };
-    if authority.contains(['/', '?', '#'])
-        || authority.chars().any(char::is_whitespace)
-        || !is_valid_https_authority(authority)
-    {
+    if authority.contains(['/', '?', '#']) || authority.chars().any(char::is_whitespace) {
         return Err(ManifestError::InvalidHttpsOrigin(value.to_owned()));
+    }
+    let canonical_authority = canonical_https_authority(authority)
+        .ok_or_else(|| ManifestError::InvalidHttpsOrigin(value.to_owned()))?;
+    let canonical = format!("https://{canonical_authority}");
+    if canonical != value {
+        return Err(ManifestError::NonCanonicalHttpsOrigin {
+            actual: value.to_owned(),
+            canonical,
+        });
     }
 
     Ok(())
 }
 
 fn is_valid_https_authority(authority: &str) -> bool {
+    canonical_https_authority(authority).is_some()
+}
+
+fn canonical_https_authority(authority: &str) -> Option<String> {
     if authority.is_empty() || authority.contains('@') {
-        return false;
+        return None;
     }
     let (host, port) = authority
         .rsplit_once(':')
         .map_or((authority, None), |(host, port)| (host, Some(port)));
-    !(host.is_empty()
-        || host.starts_with(['.', '-'])
-        || host.ends_with(['.', '-'])
-        || !host
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-'))
-        || port.is_some_and(|value| value.is_empty() || !value.chars().all(|c| c.is_ascii_digit())))
+    if host.is_empty()
+        || !host.split('.').all(|label| {
+            !label.is_empty()
+                && label
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_ascii_alphanumeric())
+                && label
+                    .chars()
+                    .last()
+                    .is_some_and(|character| character.is_ascii_alphanumeric())
+                && label
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        })
+    {
+        return None;
+    }
+
+    let host = host.to_ascii_lowercase();
+    match port {
+        None => Some(host),
+        Some(value) => {
+            let port = value.parse::<u16>().ok().filter(|port| *port != 0)?;
+            if port == 443 {
+                Some(host)
+            } else {
+                Some(format!("{host}:{port}"))
+            }
+        }
+    }
 }
 
 /// A package entry consisting of a normalized path and its uncompressed size.
@@ -539,5 +596,24 @@ mod tests {
         assert!(validate_relative_package_path("../payload.exe").is_err());
         assert!(validate_https_origin("http://example.com").is_err());
         assert!(validate_https_origin("https://example.com/path").is_err());
+        assert!(matches!(
+            validate_https_origin("https://EXAMPLE.com:0443"),
+            Err(ManifestError::NonCanonicalHttpsOrigin { canonical, .. })
+                if canonical == "https://example.com"
+        ));
+        assert!(validate_https_origin("https://example..com").is_err());
+        assert!(validate_https_origin("https://example.com:65536").is_err());
+    }
+
+    #[test]
+    fn rejects_an_invalid_host_version_requirement() {
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&valid_manifest()).expect("fixture JSON");
+        value["hostVersion"] = serde_json::Value::String("not a range".to_owned());
+        let bytes = serde_json::to_vec(&value).expect("serialize fixture");
+        assert!(matches!(
+            PluginManifest::from_slice(&bytes),
+            Err(ManifestError::InvalidHostVersionRequirement { .. })
+        ));
     }
 }

@@ -44,15 +44,6 @@ jobs:
           - name: Windows 2025 x64
             runner: windows-2025
             linux: false
-          - name: macOS 15 ARM64
-            runner: macos-15
-            linux: false
-          - name: macOS 15 Intel
-            runner: macos-15-intel
-            linux: false
-          - name: Ubuntu 24.04 x64
-            runner: ubuntu-24.04
-            linux: true
 
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45

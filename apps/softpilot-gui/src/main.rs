@@ -11,6 +11,7 @@ use std::{
 };
 
 use slint::{ModelRc, SharedString, VecModel};
+use softpilot_engine::WorkspaceService;
 
 slint::include_modules!();
 
@@ -37,9 +38,29 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error
         .first()
         .is_some_and(|argument| argument == "--workspace-smoke");
 
+    let workspace_service = Rc::new(create_workspace_service(arguments, workspace_smoke)?);
+    let located_workspace = if workspace_smoke {
+        None
+    } else {
+        workspace_service.resolve(None)?
+    };
     let window = MainWindow::new()?;
-    let initial_directory = default_directory()?;
+    let initial_directory = located_workspace
+        .as_ref()
+        .map_or_else(default_directory, |workspace| {
+            Ok(workspace.path.as_path().to_owned())
+        })?;
     show_directory(&window, &initial_directory);
+    if let Some(workspace) = &located_workspace {
+        window.set_status_text(
+            format!(
+                "已定位工作区：{}（{}）",
+                workspace.path,
+                workspace.source.as_str()
+            )
+            .into(),
+        );
+    }
 
     let weak = window.as_weak();
     window.on_navigate(move |path| {
@@ -65,17 +86,7 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error
         }
     });
 
-    let weak = window.as_weak();
-    window.on_select_workspace(move |path| {
-        if let Some(window) = weak.upgrade() {
-            let selected = PathBuf::from(path.as_str());
-            if selected.is_dir() {
-                window.set_status_text(format!("已选择工作区：{}", selected.display()).into());
-            } else {
-                window.set_status_text("所选路径不是可访问目录".into());
-            }
-        }
-    });
+    configure_workspace_selection(&window, Rc::clone(&workspace_service));
 
     if workspace_smoke {
         let selected = arguments
@@ -102,6 +113,50 @@ fn run(arguments: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error
     }
     window.run()?;
     Ok(())
+}
+
+fn create_workspace_service(
+    arguments: &[std::ffi::OsString],
+    workspace_smoke: bool,
+) -> Result<WorkspaceService, Box<dyn std::error::Error>> {
+    if !workspace_smoke {
+        return Ok(WorkspaceService::for_current_process()?);
+    }
+
+    let selected = arguments
+        .get(1)
+        .ok_or("--workspace-smoke requires a workspace directory")?;
+    let selected = PathBuf::from(selected);
+    let scratch = selected
+        .parent()
+        .ok_or("--workspace-smoke directory must have a parent")?;
+    Ok(WorkspaceService::with_locations(
+        scratch.join("softpilot-workspace-smoke.json"),
+        Some(scratch.join("config/bootstrap.json")),
+        None,
+    ))
+}
+
+fn configure_workspace_selection(window: &MainWindow, service: Rc<WorkspaceService>) {
+    let weak = window.as_weak();
+    window.on_select_workspace(move |path| {
+        if let Some(window) = weak.upgrade() {
+            let selected = PathBuf::from(path.as_str());
+            match service.initialize(&selected).and_then(|initialized| {
+                service.remember(&initialized.workspace.path)?;
+                Ok(initialized)
+            }) {
+                Ok(initialized) => {
+                    window.set_status_text(
+                        format!("已选择工作区：{}", initialized.workspace.path).into(),
+                    );
+                }
+                Err(error) => {
+                    window.set_status_text(format!("无法使用工作区：{error}").into());
+                }
+            }
+        }
+    });
 }
 
 fn default_directory() -> Result<PathBuf, Box<dyn std::error::Error>> {

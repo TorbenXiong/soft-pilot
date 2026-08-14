@@ -82,7 +82,6 @@ $runtimeHome = Join-Path $scratch 'no-rust-runtime'
 New-Item -ItemType Directory -Path $installDirectory, $workspaceDirectory, $runtimeHome | Out-Null
 $workspaceMarker = Join-Path $workspaceDirectory 'workspace-marker.txt'
 $markerValue = [guid]::NewGuid().ToString('N')
-[System.IO.File]::WriteAllText($workspaceMarker, $markerValue)
 
 $previousCargoHome = $env:CARGO_HOME
 $previousRustupHome = $env:RUSTUP_HOME
@@ -188,6 +187,7 @@ try {
     Invoke-SoftPilot -Executable $executable -Description 'Workspace selection smoke test' -ArgumentList @(
         '--workspace-smoke', $workspaceDirectory
     )
+    [System.IO.File]::WriteAllText($workspaceMarker, $markerValue)
     Invoke-SoftPilot -Executable $executable -Description 'Component and platform probe' -ArgumentList @(
         '--platform-spike', $componentPath
     )

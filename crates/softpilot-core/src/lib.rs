@@ -1,9 +1,18 @@
 //! Platform-neutral domain types shared by the `SoftPilot` host and plugin tooling.
 
+mod host;
+mod workspace;
+
 use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use thiserror::Error;
+
+pub use host::{HostTriple, HostTripleError};
+pub use workspace::{
+    WorkspaceId, WorkspaceLayoutVersion, WorkspaceLayoutVersionError, WorkspaceMetadata,
+    WorkspacePath, WorkspacePathError,
+};
 
 /// A validated, globally unique plugin identifier.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

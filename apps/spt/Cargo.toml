@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 serde_json.workspace = true
+softpilot-engine = { path = "../../crates/softpilot-engine" }
 softpilot-plugin-api = { path = "../../crates/softpilot-plugin-api", default-features = false }
 
 [lints]
