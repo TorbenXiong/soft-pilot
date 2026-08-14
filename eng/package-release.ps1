@@ -163,6 +163,46 @@ function Get-DynamicDependencies {
     return @($output | ForEach-Object { $_.ToString().TrimEnd() } | Where-Object { $_ })
 }
 
+function Find-LinuxSharedLibrary {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Soname
+    )
+
+    $ldconfig = if (Test-Path -LiteralPath '/sbin/ldconfig' -PathType Leaf) {
+        '/sbin/ldconfig'
+    }
+    else {
+        $command = Get-Command 'ldconfig' -ErrorAction SilentlyContinue
+        if (-not $command) {
+            throw "ldconfig was not found while resolving $Soname."
+        }
+        $command.Source
+    }
+
+    $output = & $ldconfig '-p' 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "ldconfig failed while resolving $Soname with exit code $LASTEXITCODE."
+    }
+
+    $escapedSoname = [regex]::Escape($Soname)
+    $candidates = @()
+    foreach ($line in $output) {
+        if ($line.ToString() -match "^\s*$escapedSoname\s+\([^)]*x86-64[^)]*\)\s+=>\s+(.+?)\s*$") {
+            $candidate = $Matches[1]
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                $candidates += [System.IO.Path]::GetFullPath($candidate)
+            }
+        }
+    }
+
+    $candidates = @($candidates | Sort-Object -Unique)
+    if ($candidates.Count -ne 1) {
+        throw "Expected one x86-64 path for $Soname, found $($candidates.Count): $candidates"
+    }
+    return $candidates[0]
+}
+
 function Write-ReleaseMetadata {
     param(
         [Parameter(Mandatory = $true)]
@@ -172,7 +212,9 @@ function Write-ReleaseMetadata {
         [string] $Format,
 
         [Parameter(Mandatory = $true)]
-        [string] $DependencyExecutable
+        [string] $DependencyExecutable,
+
+        [string[]] $BundledRuntimeLibraries = @()
     )
 
     $payloadItem = Get-Item -LiteralPath $Payload
@@ -191,6 +233,7 @@ function Write-ReleaseMetadata {
         sizeBytes = $payloadItem.Length
         sha256 = $hash
         dynamicDependencies = @($dependencies)
+        bundledRuntimeLibraries = @($BundledRuntimeLibraries)
         runtimeLinkage = $runtimeLinkage
         rustToolchain = '1.97.1'
         signed = $false
@@ -316,19 +359,34 @@ switch ($PlatformId) {
         $appDir = Join-Path $stagingDirectory 'SoftPilot.AppDir'
         $linuxResources = Join-Path (Join-Path $PSScriptRoot 'release') 'linux'
         $payload = Join-Path $releaseDirectory 'SoftPilot-x86_64.AppImage'
+        $bundledRuntimeLibraries = @(
+            'libxkbcommon.so.0',
+            'libxkbcommon-x11.so.0'
+        )
+        $bundledRuntimeLibraryPaths = @($bundledRuntimeLibraries | ForEach-Object {
+                Find-LinuxSharedLibrary -Soname $_
+            })
         $previousOutput = $env:OUTPUT
         $env:OUTPUT = Split-Path -Leaf $payload
 
+        $linuxDeployArguments = @(
+            '--appimage-extract-and-run',
+            '--appdir', $appDir,
+            '--executable', $linuxHost,
+            '--desktop-file', (Join-Path $linuxResources 'softpilot.desktop'),
+            '--icon-file', (Join-Path $linuxResources 'softpilot.svg')
+        )
+        foreach ($libraryPath in $bundledRuntimeLibraryPaths) {
+            $linuxDeployArguments += @('--library', $libraryPath)
+        }
+        $linuxDeployArguments += @('--output', 'appimage')
+
         Push-Location $releaseDirectory
         try {
-            Invoke-CheckedCommand -FilePath $LinuxDeployPath -Description 'linuxdeploy AppImage packaging' -ArgumentList @(
-                '--appimage-extract-and-run',
-                '--appdir', $appDir,
-                '--executable', $linuxHost,
-                '--desktop-file', (Join-Path $linuxResources 'softpilot.desktop'),
-                '--icon-file', (Join-Path $linuxResources 'softpilot.svg'),
-                '--output', 'appimage'
-            )
+            Invoke-CheckedCommand `
+                -FilePath $LinuxDeployPath `
+                -Description 'linuxdeploy AppImage packaging' `
+                -ArgumentList $linuxDeployArguments
         }
         finally {
             Pop-Location
@@ -344,10 +402,17 @@ switch ($PlatformId) {
         if (-not (Test-Path -LiteralPath $dependencyExecutable -PathType Leaf)) {
             throw "linuxdeploy did not install the executable at $dependencyExecutable."
         }
+        foreach ($soname in $bundledRuntimeLibraries) {
+            $bundled = @(Get-ChildItem -LiteralPath $appDir -Recurse -File -Filter "$soname*")
+            if ($bundled.Count -eq 0) {
+                throw "linuxdeploy did not bundle the required runtime library $soname."
+            }
+        }
         Write-ReleaseMetadata `
             -Payload $payload `
             -Format 'Linux x86-64 AppImage' `
-            -DependencyExecutable $dependencyExecutable
+            -DependencyExecutable $dependencyExecutable `
+            -BundledRuntimeLibraries $bundledRuntimeLibraries
     }
 }
 

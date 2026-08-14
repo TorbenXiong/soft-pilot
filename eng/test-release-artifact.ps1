@@ -63,6 +63,15 @@ $forbiddenRuntimeDependency = @($metadata.dynamicDependencies) |
 if ($forbiddenRuntimeDependency) {
     throw "Release has an unexpected language runtime dependency: $forbiddenRuntimeDependency"
 }
+if ($PlatformId -eq 'linux-x64') {
+    $expectedBundledLibraries = @('libxkbcommon.so.0', 'libxkbcommon-x11.so.0')
+    $missingBundledLibraries = @($expectedBundledLibraries | Where-Object {
+            $_ -notin @($metadata.bundledRuntimeLibraries)
+        })
+    if ($missingBundledLibraries.Count -gt 0) {
+        throw "Linux release metadata is missing bundled runtime libraries: $missingBundledLibraries"
+    }
+}
 
 $scratch = Join-Path ([System.IO.Path]::GetTempPath()) (
     "softpilot-release-verify-$([System.Diagnostics.Process]::GetCurrentProcess().Id)-$([guid]::NewGuid().ToString('N'))"
@@ -202,6 +211,7 @@ try {
         sizeBytes = $payloadSize
         sha256 = $actualHash
         dynamicDependencies = @($metadata.dynamicDependencies)
+        bundledRuntimeLibraries = @($metadata.bundledRuntimeLibraries)
         runtimeLinkage = $metadata.runtimeLinkage
         cleanRunner = [ordered]@{
             installsRust = $false
