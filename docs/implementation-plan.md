@@ -3,9 +3,9 @@
 状态：执行中
 计划版本：1.0
 最后更新：2026-08-14
-下一任务：生成三平台自包含 spike 发布物并执行干净环境验证
+下一任务：M1-02，定义工作区路径值对象、布局版本和 host triple 检测
 
-本计划只记录当前唯一维护主线。M0 的详细技术决策、试验过程和 Windows 验证结果已归档至 [`archive/m0-plugin-platform-spike-2026-08.md`](archive/m0-plugin-platform-spike-2026-08.md)。
+本计划只记录当前唯一维护主线。M0 的详细技术决策与平台验证已归档至 [`archive/m0-plugin-platform-spike-2026-08.md`](archive/m0-plugin-platform-spike-2026-08.md)，自包含发布物结果归档至 [`archive/m0-release-spike-2026-08.md`](archive/m0-release-spike-2026-08.md)。
 
 ## 1. 当前基线
 
@@ -21,10 +21,10 @@
 - [x] 在 GitHub 原生 runner 执行 format、check、Clippy、测试、Component 专项套件和平台探针。
 - [x] 核对同一 Component 在 Windows、macOS ARM64/x64 和 Ubuntu x64 返回一致 descriptor。
 - [x] 修复真实 runner 暴露的平台差异，并将三平台验证标记完成。
-- [ ] 生成三平台自包含 spike 发布物。
-- [ ] 在干净环境验证无需预装语言运行时，并记录包体、动态依赖、启动和替换结果。
+- [x] `M0-10`：生成 Windows x64 单文件、macOS ARM64/x64 app bundle 和 Linux x64 AppImage spike 发布物。
+- [x] `M0-10` 验收：在四个干净 Runner 验证无需预装 Rust、Cargo 或其他语言运行时，并记录包体、动态依赖、启动和替换结果。
 
-阶段 Gate：三平台原生验证全部通过；同一 Component 行为一致；错误插件不破坏宿主；自包含发布物可在干净环境启动。
+[x] 平台基础 Gate：三平台原生验证全部通过；同一 Component 行为一致；错误插件不破坏宿主；自包含发布物可在干净环境启动。
 
 ## 3. 后续阶段
 
@@ -75,10 +75,10 @@
 
 ## 4. 下一执行队列
 
-1. 生成 Windows x64、macOS ARM64/x64 和 Ubuntu x64 自包含 spike 发布物。
-2. 在干净 runner 验证无需预装语言运行时，并记录包体、动态依赖、启动和替换结果。
-3. 完成平台基础 Gate。
-4. 进入 M1，先完成工作区路径、host triple 与跨进程锁。
+1. 执行 `M1-02`：定义工作区路径值对象、布局版本和 host triple 检测。
+2. 为路径规范化、布局兼容范围和三平台 host triple 增加单元测试。
+3. 执行 `M1-03`：实现 `spt workspace init|show`、首次选择和工作区元数据。
+4. 执行 `M1-04`：把已验证的跨进程锁探针收敛为工作区锁用例。
 
 ## 5. 决策队列
 
