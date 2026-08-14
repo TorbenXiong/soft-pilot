@@ -1,0 +1,228 @@
+package softpilot:plugin@0.1.0;
+
+/// The synchronous, capability-free contract implemented by a software plugin.
+/// External I/O is performed by the host after validating the plugin's plan.
+interface lifecycle {
+    enum operating-system {
+        windows,
+        macos,
+        linux,
+    }
+
+    enum architecture {
+        x86-64,
+        arm64,
+    }
+
+    enum libc {
+        none,
+        glibc,
+    }
+
+    record host-context {
+        os: operating-system,
+        architecture: architecture,
+        libc: libc,
+        host-version: string,
+        locale: string,
+    }
+
+    record plugin-descriptor {
+        id: string,
+        version: string,
+        plugin-api: string,
+    }
+
+    enum error-code {
+        invalid-input,
+        unsupported-host,
+        unsupported-version,
+        invalid-catalog,
+        invalid-config,
+        internal,
+    }
+
+    record plugin-error {
+        code: error-code,
+        message: string,
+    }
+
+    record catalog-request {
+        id: string,
+        url: string,
+        accept: option<string>,
+        maximum-bytes: u64,
+    }
+
+    record response-header {
+        name: string,
+        value: string,
+    }
+
+    record catalog-response {
+        id: string,
+        final-url: string,
+        status: u16,
+        headers: list<response-header>,
+        body: list<u8>,
+    }
+
+    enum archive-format {
+        zip,
+        tar-gzip,
+        tar-xz,
+        raw,
+    }
+
+    record target {
+        os: operating-system,
+        architecture: architecture,
+        libc: libc,
+    }
+
+    record artifact {
+        id: string,
+        target: target,
+        url: string,
+        file-name: string,
+        archive-format: archive-format,
+        size: option<u64>,
+        sha256: option<string>,
+        checksum-url: option<string>,
+        signature-url: option<string>,
+    }
+
+    record release {
+        version: string,
+        channel: option<string>,
+        long-term-support: bool,
+        release-page: option<string>,
+        artifacts: list<artifact>,
+    }
+
+    record install-request {
+        host: host-context,
+        exact-version: string,
+        artifact: artifact,
+    }
+
+    record download-step {
+        artifact-id: string,
+        output: string,
+    }
+
+    record verify-sha256-step {
+        input: string,
+        expected-sha256: string,
+    }
+
+    record verify-detached-signature-step {
+        payload: string,
+        signature: string,
+        keyring: string,
+        allowed-signers: list<string>,
+    }
+
+    record extract-step {
+        input: string,
+        format: archive-format,
+        strip-single-root: bool,
+        output-directory: string,
+    }
+
+    enum process-scope {
+        staged,
+        installed,
+    }
+
+    record environment-entry {
+        name: string,
+        value: option<string>,
+    }
+
+    record run-step {
+        scope: process-scope,
+        executable: string,
+        arguments: list<string>,
+        environment: list<environment-entry>,
+        allowed-exit-codes: list<s32>,
+    }
+
+    variant preparation-step {
+        download(download-step),
+        verify-sha256(verify-sha256-step),
+        verify-detached-signature(verify-detached-signature-step),
+        extract(extract-step),
+        run(run-step),
+    }
+
+    record health-probe {
+        executable: string,
+        arguments: list<string>,
+        environment: list<environment-entry>,
+        maximum-output-bytes: u64,
+    }
+
+    record command-contribution {
+        name: string,
+        executable: string,
+        arguments: list<string>,
+    }
+
+    record environment-contribution {
+        name: string,
+        relative-value: string,
+    }
+
+    record activation {
+        commands: list<command-contribution>,
+        path-entries: list<string>,
+        environment: list<environment-contribution>,
+    }
+
+    record install-plan {
+        exact-version: string,
+        instance-directory-name: string,
+        steps: list<preparation-step>,
+        health: health-probe,
+        activation: activation,
+    }
+
+    record probe-result {
+        exit-code: s32,
+        standard-output: string,
+        standard-error: string,
+    }
+
+    record health-result {
+        healthy: bool,
+        actual-version: option<string>,
+        message: option<string>,
+    }
+
+    descriptor: func() -> plugin-descriptor;
+
+    catalog-requests: func(host: host-context) -> result<list<catalog-request>, plugin-error>;
+
+    parse-catalog: func(
+        host: host-context,
+        responses: list<catalog-response>,
+    ) -> result<list<release>, plugin-error>;
+
+    plan-install: func(request: install-request) -> result<install-plan, plugin-error>;
+
+    evaluate-health: func(
+        exact-version: string,
+        probe: probe-result,
+    ) -> result<health-result, plugin-error>;
+
+    config-schema: func() -> option<string>;
+
+    parse-config: func(content: list<u8>) -> result<string, plugin-error>;
+
+    render-config: func(canonical-json: string) -> result<list<u8>, plugin-error>;
+}
+
+world software-plugin {
+    export lifecycle;
+}

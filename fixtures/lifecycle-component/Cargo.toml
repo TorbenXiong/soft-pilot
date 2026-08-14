@@ -1,0 +1,23 @@
+[package]
+name = "softpilot-lifecycle-fixture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+excessive-memory = []
+non-terminating = []
+trap = []
+wasi-imports = []
+
+[dependencies]
+wit-bindgen.workspace = true
+
+[lints.rust]
+unsafe_code = "allow"

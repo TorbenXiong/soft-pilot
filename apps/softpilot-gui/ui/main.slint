@@ -1,0 +1,97 @@
+import { Button, HorizontalBox, LineEdit, ScrollView, VerticalBox } from "std-widgets.slint";
+
+export struct DirectoryItem {
+    name: string,
+    path: string,
+}
+
+export component MainWindow inherits Window {
+    title: "SoftPilot";
+    min-width: 760px;
+    min-height: 560px;
+
+    in-out property <string> current-directory;
+    in property <[DirectoryItem]> directories;
+    in-out property <string> status-text: "请选择 SoftPilot 工作区";
+    in-out property <bool> about-visible: false;
+
+    callback navigate(string);
+    callback navigate-parent();
+    callback show-roots();
+    callback select-workspace(string);
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 12px;
+
+        HorizontalBox {
+            Text {
+                text: "SoftPilot 工作区";
+                font-size: 24px;
+                font-weight: 700;
+                horizontal-stretch: 1;
+            }
+            Button {
+                text: "关于";
+                clicked => { root.about-visible = !root.about-visible; }
+            }
+        }
+
+        if root.about-visible: Rectangle {
+            background: #eef4ff;
+            border-radius: 6px;
+            height: 52px;
+            Text {
+                text: "SoftPilot · Built with Slint 1.17.1";
+                color: #23426f;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: "首次运行只需选择一次；后续将从工作区定位插件、软件、配置和数据。";
+            color: #555;
+            wrap: word-wrap;
+        }
+
+        HorizontalBox {
+            spacing: 8px;
+            Button { text: "上一级"; clicked => { root.navigate-parent(); } }
+            Button { text: "根目录"; clicked => { root.show-roots(); } }
+            LineEdit {
+                text <=> root.current-directory;
+                horizontal-stretch: 1;
+                accepted => { root.navigate(self.text); }
+            }
+            Button { text: "转到"; clicked => { root.navigate(root.current-directory); } }
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalBox {
+                spacing: 4px;
+                for item in root.directories: Button {
+                    text: item.name;
+                    clicked => { root.navigate(item.path); }
+                }
+            }
+        }
+
+        Text {
+            text: root.status-text;
+            color: #555;
+            wrap: word-wrap;
+        }
+
+        HorizontalBox {
+            horizontal-stretch: 1;
+            Rectangle { horizontal-stretch: 1; }
+            Button {
+                text: "使用当前目录";
+                primary: true;
+                clicked => { root.select-workspace(root.current-directory); }
+            }
+        }
+    }
+}

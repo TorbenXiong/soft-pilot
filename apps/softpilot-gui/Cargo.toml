@@ -1,0 +1,22 @@
+[package]
+name = "softpilot-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+slint.workspace = true
+softpilot-plugin-api = { path = "../../crates/softpilot-plugin-api" }
+
+[build-dependencies]
+slint-build.workspace = true
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

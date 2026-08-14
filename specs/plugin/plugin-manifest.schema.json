@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://softpilot.dev/schemas/plugin-manifest-0.1.0.json",
+  "title": "SoftPilot plugin manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "version",
+    "pluginApi",
+    "name",
+    "description",
+    "publisher",
+    "license",
+    "kind",
+    "managementLevel",
+    "entry",
+    "targets",
+    "permissions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1.0"
+    },
+    "id": {
+      "$ref": "#/$defs/pluginId"
+    },
+    "version": {
+      "$ref": "#/$defs/semanticVersion"
+    },
+    "pluginApi": {
+      "const": "0.1.0"
+    },
+    "hostVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "A host compatibility requirement evaluated by SoftPilot."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      }
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "SPDX license expression or LicenseRef identifier."
+    },
+    "kind": {
+      "enum": [
+        "runtime",
+        "application",
+        "toolchain",
+        "service",
+        "system-package"
+      ]
+    },
+    "managementLevel": {
+      "enum": [
+        "workspace",
+        "user",
+        "system",
+        "external"
+      ]
+    },
+    "entry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "recipe"],
+          "properties": {
+            "type": {
+              "const": "recipe"
+            },
+            "recipe": {
+              "$ref": "#/$defs/packagePath"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "recipe", "component"],
+          "properties": {
+            "type": {
+              "const": "component"
+            },
+            "recipe": {
+              "$ref": "#/$defs/packagePath"
+            },
+            "component": {
+              "$ref": "#/$defs/packagePath"
+            }
+          }
+        }
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["os", "architecture"],
+        "properties": {
+          "os": {
+            "enum": ["windows", "macos", "linux"]
+          },
+          "architecture": {
+            "enum": ["x86-64", "arm64"]
+          },
+          "libc": {
+            "enum": ["glibc"]
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "process", "shell", "os"],
+      "properties": {
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["catalogOrigins", "artifactOrigins"],
+          "properties": {
+            "catalogOrigins": {
+              "$ref": "#/$defs/httpsOrigins"
+            },
+            "artifactOrigins": {
+              "$ref": "#/$defs/httpsOrigins"
+            }
+          }
+        },
+        "process": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["staged", "installed"]
+          }
+        },
+        "shell": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["path", "environment", "shims"]
+          }
+        },
+        "os": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["shortcut", "elevation", "system-installer"]
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "$ref": "#/$defs/packagePath"
+        },
+        "locales": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/packagePath"
+          }
+        },
+        "sbom": {
+          "$ref": "#/$defs/packagePath"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pluginId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$",
+      "minLength": 3,
+      "maxLength": 160
+    },
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "maxLength": 128
+    },
+    "packagePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]*$",
+      "maxLength": 240
+    },
+    "httpsOrigins": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uri",
+        "pattern": "^https://[A-Za-z0-9.-]+(?::[0-9]+)?$"
+      }
+    }
+  }
+}

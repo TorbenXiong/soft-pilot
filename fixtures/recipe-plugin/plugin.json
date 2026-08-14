@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "0.1.0",
+  "id": "dev.softpilot.fixture",
+  "version": "1.0.0",
+  "pluginApi": "0.1.0",
+  "name": "Fixture Tool",
+  "description": "Minimal declarative plugin used for host validation and examples.",
+  "publisher": {
+    "name": "SoftPilot"
+  },
+  "license": "MIT",
+  "kind": "application",
+  "managementLevel": "workspace",
+  "entry": {
+    "type": "recipe",
+    "recipe": "recipe.json"
+  },
+  "targets": [
+    {
+      "os": "windows",
+      "architecture": "x86-64"
+    },
+    {
+      "os": "macos",
+      "architecture": "arm64"
+    },
+    {
+      "os": "linux",
+      "architecture": "x86-64",
+      "libc": "glibc"
+    }
+  ],
+  "permissions": {
+    "network": {
+      "catalogOrigins": [],
+      "artifactOrigins": []
+    },
+    "process": [],
+    "shell": [],
+    "os": []
+  }
+}

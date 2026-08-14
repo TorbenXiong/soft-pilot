@@ -1,13 +1,5 @@
-bin/
-obj/
-.vs/
 .idea/
-TestResults/
-artifacts/
-*.user
-*.suo
-*.pfx
-*.snk
-*.msi
-*.wixpdb
+.tools/
+target/
+.DS_Store
 *.log
