@@ -9,6 +9,17 @@ public sealed class WindowsInstallationPathService : IInstallationPathService
         ".softpilot-root", "bin", "app", "current", "data", "cache", "staging", "trash", "logs",
     ];
 
+    public string GetDefaultParentDirectory()
+    {
+        var fallbackParent = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Programs");
+        var driveRoots = OrderDriveRootCandidates(
+            DriveInfo.GetDrives().Select(drive => drive.RootDirectory.FullName));
+
+        return FindFirstValidParentDirectory(driveRoots, fallbackParent);
+    }
+
     public string ResolveRoot(string selectedParentDirectory) =>
         InstallationRootResolver.Resolve(selectedParentDirectory);
 
@@ -58,6 +69,33 @@ public sealed class WindowsInstallationPathService : IInstallationPathService
 
         return new InstallationPathValidation(selectedParent, finalRoot, errors.Count == 0, errors);
     }
+
+    internal string FindFirstValidParentDirectory(
+        IEnumerable<string> candidates,
+        string fallbackParent)
+    {
+        foreach (var candidate in candidates
+                     .Append(fallbackParent)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var validation = Validate(candidate);
+            if (validation.IsValid)
+            {
+                return validation.SelectedParent;
+            }
+        }
+
+        return fallbackParent;
+    }
+
+    internal static IReadOnlyList<string> OrderDriveRootCandidates(IEnumerable<string> driveRoots) =>
+        driveRoots
+            .Where(root => root.Length >= 2
+                && root[1] == Path.VolumeSeparatorChar
+                && char.ToUpperInvariant(root[0]) is >= 'C' and <= 'Z')
+            .OrderBy(root => char.ToUpperInvariant(root[0]))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private static void ValidateDrive(string root, ICollection<string> errors)
     {
@@ -147,15 +185,47 @@ public sealed class WindowsInstallationPathService : IInstallationPathService
         var names = entries.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         using var rootKey = Registry.CurrentUser.OpenSubKey(WindowsRootRegistry.KeyPath);
         var registeredRoot = rootKey?.GetValue(WindowsRootRegistry.ValueName) as string;
-        var isRegisteredWorkspace = !string.IsNullOrWhiteSpace(registeredRoot)
-            && string.Equals(
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(registeredRoot)),
-                target,
-                StringComparison.OrdinalIgnoreCase)
-            && names.All(IsManagedEntry);
-        if (!isRegisteredWorkspace)
+        var isRegisteredWorkspace = IsRegisteredWorkspace(registeredRoot, target);
+        var hasWorkspaceMarker = HasWorkspaceMarker(target);
+        var isManagedWorkspace = names.All(IsManagedEntry)
+            && (isRegisteredWorkspace || hasWorkspaceMarker);
+        if (!isManagedWorkspace)
         {
             errors.Add("最终目录非空且不属于 SoftPilot，可能已被其他应用占用。");
+        }
+    }
+
+    private static bool IsRegisteredWorkspace(string? registeredRoot, string target)
+    {
+        if (string.IsNullOrWhiteSpace(registeredRoot))
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(registeredRoot)),
+                target,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasWorkspaceMarker(string target)
+    {
+        try
+        {
+            var marker = Path.Combine(target, ".softpilot-root");
+            return File.Exists(marker)
+                && string.Equals(File.ReadAllText(marker).Trim(), "SoftPilot workspace", StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

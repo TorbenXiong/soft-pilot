@@ -24,6 +24,11 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" PrivateAssets="all" />
     <PackageReference Include="Microsoft.WindowsAppSDK" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\RuntimeIcons\*.*"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
   <Target Name="CopyWinUiGeneratedResourcesToPublish" AfterTargets="Publish">
     <ItemGroup>
       <_WinUiGeneratedResource Include="$(TargetDir)*.xbf" />

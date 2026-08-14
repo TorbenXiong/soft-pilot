@@ -40,11 +40,6 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
         Directory.CreateDirectory(TrashDirectory);
         Directory.CreateDirectory(LogsDirectory);
 
-        foreach (var kind in Enum.GetValues<RuntimeKind>())
-        {
-            Directory.CreateDirectory(Path.Combine(AppDirectory, GetKindName(kind)));
-        }
-
         var marker = Path.Combine(Root, ".softpilot-root");
         if (!File.Exists(marker))
         {

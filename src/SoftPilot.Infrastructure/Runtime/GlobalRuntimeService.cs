@@ -6,6 +6,7 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
     private readonly IInstallationLayout _layout;
     private readonly WindowsDirectoryLinkService _links;
     private readonly IReadOnlyDictionary<RuntimeKind, IRuntimeProvider> _providers;
+    private readonly IShellIntegrationService _shell;
     private readonly WorkspaceOperationLock _workspaceLock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -13,12 +14,14 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
         IStateStore stateStore,
         IInstallationLayout layout,
         WindowsDirectoryLinkService links,
-        IEnumerable<IRuntimeProvider> providers)
+        IEnumerable<IRuntimeProvider> providers,
+        IShellIntegrationService shell)
     {
         _stateStore = stateStore;
         _layout = layout;
         _links = links;
         _providers = providers.ToDictionary(provider => provider.Kind);
+        _shell = shell;
         _workspaceLock = new WorkspaceOperationLock(layout);
     }
 
@@ -36,6 +39,7 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            var shellWasEnabled = (await _shell.GetStatusAsync(cancellationToken)).IsEnabled;
             var installation = await _stateStore.FindInstallationAsync(kind, version, cancellationToken: cancellationToken)
                 ?? throw new RuntimeNotFoundException(kind, version);
             if (!Directory.Exists(installation.InstallPath))
@@ -87,6 +91,24 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
 
                 throw;
             }
+
+            if (!shellWasEnabled)
+            {
+                try
+                {
+                    await _shell.EnableAsync(cancellationToken);
+                }
+                catch (Exception operationException)
+                {
+                    await RollbackSelectionAsync(
+                        kind,
+                        previous,
+                        link,
+                        operationException,
+                        restoreShell: false);
+                    throw;
+                }
+            }
         }
         finally
         {
@@ -100,8 +122,12 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            var previous = (await GetCurrentAsync(cancellationToken))[kind];
+            var current = await GetCurrentAsync(cancellationToken);
+            var previous = current[kind];
             var link = _layout.GetCurrentLink(kind);
+            var shouldDisableShell = previous is not null
+                && current.Where(pair => pair.Key != kind).All(pair => pair.Value is null)
+                && (await _shell.GetStatusAsync(cancellationToken)).IsEnabled;
             _links.Delete(link);
             try
             {
@@ -123,6 +149,24 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
 
                 throw;
             }
+
+            if (shouldDisableShell)
+            {
+                try
+                {
+                    await _shell.DisableAsync(cancellationToken);
+                }
+                catch (Exception operationException)
+                {
+                    await RollbackSelectionAsync(
+                        kind,
+                        previous,
+                        link,
+                        operationException,
+                        restoreShell: true);
+                    throw;
+                }
+            }
         }
         finally
         {
@@ -137,6 +181,77 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
         return Enum.GetValues<RuntimeKind>().ToDictionary(
             kind => kind,
             kind => installations.FirstOrDefault(installation => installation.Kind == kind && installation.IsCurrent));
+    }
+
+    public async Task ReconcileShellIntegrationAsync(CancellationToken cancellationToken = default)
+    {
+        var hasCurrentVersion = (await GetCurrentAsync(cancellationToken)).Values.Any(value => value is not null);
+        var status = await _shell.GetStatusAsync(cancellationToken);
+        if (hasCurrentVersion && (!status.IsEnabled || status.Problem is not null))
+        {
+            await _shell.EnableAsync(cancellationToken);
+        }
+        else if (!hasCurrentVersion && status.IsEnabled)
+        {
+            await _shell.DisableAsync(cancellationToken);
+        }
+    }
+
+    private async Task RollbackSelectionAsync(
+        RuntimeKind kind,
+        RuntimeInstallation? previous,
+        string link,
+        Exception operationException,
+        bool restoreShell)
+    {
+        var rollbackExceptions = new List<Exception>();
+        try
+        {
+            if (previous is null)
+            {
+                _links.Delete(link);
+            }
+            else
+            {
+                await _links.ReplaceAsync(link, previous.InstallPath, CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            rollbackExceptions.Add(exception);
+        }
+
+        try
+        {
+            await _stateStore.SetCurrentAsync(kind, previous?.Version, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            rollbackExceptions.Add(exception);
+        }
+
+        try
+        {
+            if (restoreShell)
+            {
+                await _shell.EnableAsync(CancellationToken.None);
+            }
+            else
+            {
+                await _shell.DisableAsync(CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            rollbackExceptions.Add(exception);
+        }
+
+        if (rollbackExceptions.Count > 0)
+        {
+            throw new GlobalRuntimeRollbackException(
+                "自动更新终端环境失败，且未能完整恢复原状态。请运行 spt doctor 检查当前版本和环境变量。",
+                new AggregateException([operationException, .. rollbackExceptions]));
+        }
     }
 
     private static GlobalRuntimeRollbackException CreateRollbackException(

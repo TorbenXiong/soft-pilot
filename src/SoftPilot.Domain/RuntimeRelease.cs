@@ -8,4 +8,5 @@ public sealed record RuntimeRelease(
     string? Sha256,
     Uri? ChecksumUri = null,
     Uri? SignatureUri = null,
-    bool IsLongTermSupport = false);
+    bool IsLongTermSupport = false,
+    Uri? ReleasePageUri = null);

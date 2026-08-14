@@ -162,18 +162,40 @@ public sealed class TemurinRuntimeProvider : IRuntimeProvider
                     continue;
                 }
 
+                var downloadUri = new Uri(link);
+
                 result.Add(new RuntimeRelease(
                     Kind,
                     version,
                     RuntimeArchitecture.X64,
-                    new Uri(link),
+                    downloadUri,
                     checksum,
                     SignatureUri: new Uri(signatureLink),
-                    IsLongTermSupport: true));
+                    IsLongTermSupport: true,
+                    ReleasePageUri: CreateReleasePageUri(downloadUri)));
             }
         }
 
         return result;
+    }
+
+    internal static Uri? CreateReleasePageUri(Uri downloadUri)
+    {
+        if (!TryReadGitHubReleasePath(
+                downloadUri,
+                out var owner,
+                out var repository,
+                out var tag,
+                out _))
+        {
+            return null;
+        }
+
+        return new UriBuilder(Uri.UriSchemeHttps, "github.com")
+        {
+            Path = $"{owner}/{repository}/releases",
+            Fragment = $"release-{tag}",
+        }.Uri;
     }
 
     private async Task<(Uri Archive, Uri Signature)> ResolveOfficialAssetUrisAsync(

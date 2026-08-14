@@ -2,15 +2,27 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using SoftPilot.Domain;
 using SoftPilot.Gui.ViewModels;
+using Windows.Storage;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.System;
+using Windows.Graphics;
 
 namespace SoftPilot.Gui;
 
 public sealed partial class MainWindow : Window
 {
+    private readonly SemaphoreSlim _dialogGate = new(1, 1);
+    private string _currentTag = "runtime:node";
+
     public MainWindow(MainViewModel viewModel)
     {
         ViewModel = viewModel;
         InitializeComponent();
+        ViewModel.NotificationRequested += OnNotificationRequested;
+        ViewModel.ModulePreferencesChanged += OnModulePreferencesChanged;
+        AppWindow.Resize(new SizeInt32(1280, 800));
+        RootNavigation.SelectedItem = NodeNavigationItem;
+        SetRuntimeSection(showInstalled: true);
         _ = InitializeAsync();
     }
 
@@ -18,7 +30,8 @@ public sealed partial class MainWindow : Window
 
     private async Task InitializeAsync()
     {
-        await ViewModel.RefreshAsync();
+        await ViewModel.InitializeAsync();
+        ApplyRuntimeNavigationOrder();
         RootNavigation.SelectedItem = GetInitialNavigationItem();
     }
 
@@ -30,6 +43,7 @@ public sealed partial class MainWindow : Window
         }
 
         var isRuntime = tag.StartsWith("runtime:", StringComparison.Ordinal);
+        _currentTag = tag;
         RuntimesView.Visibility = isRuntime ? Visibility.Visible : Visibility.Collapsed;
         TasksView.Visibility = tag == "tasks" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
@@ -39,35 +53,268 @@ public sealed partial class MainWindow : Window
             ViewModel.SelectRuntimeModule(kind);
         }
 
-        (PageTitle.Text, PageSubtitle.Text) = tag switch
+        UpdatePageTitle();
+    }
+
+    private async void OnInstallVersionClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is RuntimeVersionRow row)
         {
-            "tasks" => ("任务历史", "查看安装、卸载、恢复与失败原因。"),
-            "settings" => ("设置", "配置模块、工作区信息与显式 Shell 集成。"),
-            "runtime:java" => ("Java", "管理 Eclipse Temurin JDK 的安装版本与全局切换。"),
-            "runtime:python" => ("Python", "管理 CPython 的安装版本与全局切换。"),
-            _ => ("Node.js", "管理 Node.js 的安装版本与全局切换。"),
+            await ViewModel.InstallVersionAsync(row);
+        }
+    }
+
+    private void OnInstalledTabClick(object sender, RoutedEventArgs e) =>
+        SetRuntimeSection(showInstalled: true);
+
+    private void OnVersionManagementTabClick(object sender, RoutedEventArgs e) =>
+        SetRuntimeSection(showInstalled: false);
+
+    private void SetRuntimeSection(bool showInstalled)
+    {
+        InstalledTabContent.Visibility = showInstalled ? Visibility.Visible : Visibility.Collapsed;
+        VersionManagementTabContent.Visibility = showInstalled ? Visibility.Collapsed : Visibility.Visible;
+        InstalledTabButton.IsChecked = showInstalled;
+        VersionManagementTabButton.IsChecked = !showInstalled;
+        _ = VisualStateManager.GoToState(
+            InstalledTabButton,
+            showInstalled ? "Checked" : "Unchecked",
+            useTransitions: true);
+        _ = VisualStateManager.GoToState(
+            VersionManagementTabButton,
+            showInstalled ? "Unchecked" : "Checked",
+            useTransitions: true);
+    }
+
+    private async void OnInstalledEnvironmentClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button
+            && button.DataContext is InstalledRuntimeRow row
+            && row.CanToggleEnvironment)
+        {
+            button.IsEnabled = false;
+            if (row.IsCurrent)
+            {
+                await ViewModel.ClearInstalledGlobalAsync(row);
+            }
+            else
+            {
+                await ViewModel.UseInstalledRuntimeAsync(row);
+            }
+            button.IsEnabled = true;
+        }
+    }
+
+    private async void OnUninstallVersionClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is RuntimeVersionRow row
+            && await ConfirmUninstallAsync(row.RuntimeKind, row.Version))
+        {
+            await ViewModel.UninstallVersionAsync(row);
+        }
+    }
+
+    private async void OnUninstallInstalledClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row
+            && await ConfirmUninstallAsync(row.RuntimeKind, row.Version))
+        {
+            await ViewModel.UninstallInstalledRuntimeAsync(row);
+        }
+    }
+
+    private async void OnOpenInstalledPathClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not InstalledRuntimeRow row)
+        {
+            return;
+        }
+
+        try
+        {
+            var directory = Directory.Exists(row.Path) ? row.Path : Path.GetDirectoryName(row.Path);
+            if (directory is null || !Directory.Exists(directory))
+            {
+                throw new DirectoryNotFoundException(row.Path);
+            }
+
+            var folder = await StorageFolder.GetFolderFromPathAsync(directory);
+            if (!await Launcher.LaunchFolderAsync(folder))
+            {
+                throw new InvalidOperationException("Windows 未能打开该目录。");
+            }
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open folder" : "无法打开目录",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private async void OnCopyInstalledPathClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not InstalledRuntimeRow row)
+        {
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(row.Path);
+        Clipboard.SetContent(package);
+        row.SetPathStatus(ViewModel.IsEnglish ? "Copied" : "已复制");
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        row.SetPathStatus(string.Empty);
+    }
+
+    private async void OnOpenRuntimeUrlClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: RuntimeVersionRow row, Tag: string url }
+            || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || !IsOfficialRuntimeUri(row.RuntimeKind, uri))
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open link" : "无法打开链接",
+                ViewModel.IsEnglish ? "The version URL is invalid or is not an official source." : "版本地址无效或不是官方来源。",
+                IsError: true));
+            return;
+        }
+
+        if (!await Launcher.LaunchUriAsync(uri))
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open link" : "无法打开链接",
+                ViewModel.IsEnglish ? "Windows could not open the version URL." : "Windows 未能打开该版本地址。",
+                IsError: true));
+        }
+    }
+
+    private async void OnLanguageSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox { SelectedItem: LanguageOption option }
+            && ViewModel.SelectedLanguage?.Code != option.Code)
+        {
+            await ViewModel.ChangeLanguageAsync(option);
+            UpdatePageTitle();
+        }
+    }
+
+    private async void OnNotificationRequested(UserNotification notification)
+    {
+        if (RootNavigation.XamlRoot is null)
+        {
+            return;
+        }
+
+        await _dialogGate.WaitAsync();
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootNavigation.XamlRoot,
+                Title = notification.Title,
+                Content = notification.Message,
+                CloseButtonText = ViewModel.IsEnglish ? "OK" : "确定",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
+    }
+
+    private async Task<bool> ConfirmUninstallAsync(RuntimeKind kind, string version)
+    {
+        if (RootNavigation.XamlRoot is null)
+        {
+            return false;
+        }
+
+        await _dialogGate.WaitAsync();
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootNavigation.XamlRoot,
+                Title = ViewModel.IsEnglish ? "Uninstall runtime?" : "确认卸载？",
+                Content = ViewModel.IsEnglish
+                    ? $"{GetRuntimeName(kind)}@{version} will be permanently removed."
+                    : $"将永久卸载 {GetRuntimeName(kind)}@{version}。",
+                PrimaryButtonText = ViewModel.IsEnglish ? "Uninstall" : "卸载",
+                CloseButtonText = ViewModel.IsEnglish ? "Cancel" : "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
+    }
+
+    private void OnModulePreferencesChanged() => ApplyRuntimeNavigationOrder();
+
+    private void ApplyRuntimeNavigationOrder()
+    {
+        RootNavigation.MenuItems.Clear();
+        foreach (var kind in ViewModel.GetOrderedModuleKinds())
+        {
+            RootNavigation.MenuItems.Add(kind switch
+            {
+                RuntimeKind.Node => NodeNavigationItem,
+                RuntimeKind.Java => JavaNavigationItem,
+                RuntimeKind.Python => PythonNavigationItem,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            });
+        }
+
+        RootNavigation.MenuItems.Add(RuntimeNavigationSeparator);
+        RootNavigation.MenuItems.Add(TasksNavigationItem);
+    }
+
+    private void UpdatePageTitle()
+    {
+        PageTitle.Text = _currentTag switch
+        {
+            "tasks" => ViewModel.TaskHistoryText,
+            "settings" => ViewModel.SettingsText,
+            "runtime:java" => "Java",
+            "runtime:python" => "Python",
+            _ => "Node.js",
         };
     }
 
     private NavigationViewItem GetInitialNavigationItem()
     {
-        if (ViewModel.NodeModuleEnabled)
+        foreach (var kind in ViewModel.GetOrderedModuleKinds())
         {
-            return NodeNavigationItem;
-        }
+            if (!ViewModel.IsModuleEnabled(kind))
+            {
+                continue;
+            }
 
-        if (ViewModel.JavaModuleEnabled)
-        {
-            return JavaNavigationItem;
-        }
-
-        if (ViewModel.PythonModuleEnabled)
-        {
-            return PythonNavigationItem;
+            return kind switch
+            {
+                RuntimeKind.Node => NodeNavigationItem,
+                RuntimeKind.Java => JavaNavigationItem,
+                RuntimeKind.Python => PythonNavigationItem,
+                _ => SettingsNavigationItem,
+            };
         }
 
         return SettingsNavigationItem;
     }
+
+    private static string GetRuntimeName(RuntimeKind kind) => kind switch
+    {
+        RuntimeKind.Node => "Node.js",
+        RuntimeKind.Java => "Java",
+        RuntimeKind.Python => "Python",
+        _ => kind.ToString(),
+    };
 
     private static bool TryGetRuntimeKind(string tag, out RuntimeKind kind)
     {
@@ -79,5 +326,23 @@ public sealed partial class MainWindow : Window
             _ => default,
         };
         return tag is "runtime:node" or "runtime:java" or "runtime:python";
+    }
+
+    private static bool IsOfficialRuntimeUri(RuntimeKind kind, Uri uri)
+    {
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var officialDomain = kind switch
+        {
+            RuntimeKind.Node => "nodejs.org",
+            RuntimeKind.Java => "github.com",
+            RuntimeKind.Python => "python.org",
+            _ => string.Empty,
+        };
+        return string.Equals(uri.Host, officialDomain, StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith($".{officialDomain}", StringComparison.OrdinalIgnoreCase);
     }
 }

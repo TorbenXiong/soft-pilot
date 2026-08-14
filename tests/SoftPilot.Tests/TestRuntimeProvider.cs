@@ -28,8 +28,13 @@ internal sealed class TestRuntimeProvider : IRuntimeProvider
 
     public string Version { get; }
 
-    public Task<IReadOnlyList<RuntimeRelease>> GetAvailableAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<RuntimeRelease>>([CreateRelease()]);
+    public int AvailableCallCount { get; private set; }
+
+    public Task<IReadOnlyList<RuntimeRelease>> GetAvailableAsync(CancellationToken cancellationToken = default)
+    {
+        AvailableCallCount++;
+        return Task.FromResult<IReadOnlyList<RuntimeRelease>>([CreateRelease()]);
+    }
 
     public Task<RuntimeRelease> ResolveAsync(string exactVersion, CancellationToken cancellationToken = default) =>
         string.Equals(exactVersion, Version, StringComparison.Ordinal)
@@ -53,5 +58,6 @@ internal sealed class TestRuntimeProvider : IRuntimeProvider
         Version,
         RuntimeArchitecture.X64,
         new Uri($"https://example.invalid/{Kind}/{Version}.zip"),
-        null);
+        null,
+        ReleasePageUri: new Uri($"https://example.invalid/{Kind}/{Version}/"));
 }

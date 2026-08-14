@@ -3,9 +3,23 @@ namespace SoftPilot.Application;
 public sealed record RuntimeModulePreferences(
     bool NodeEnabled,
     bool JavaEnabled,
-    bool PythonEnabled)
+    bool PythonEnabled,
+    string Language = "zh-CN",
+    IReadOnlyList<RuntimeKind>? ModuleOrder = null)
 {
-    public static RuntimeModulePreferences Default { get; } = new(true, true, true);
+    private static readonly RuntimeKind[] DefaultOrder =
+    [
+        RuntimeKind.Node,
+        RuntimeKind.Java,
+        RuntimeKind.Python,
+    ];
+
+    public static RuntimeModulePreferences Default { get; } = new(
+        true,
+        true,
+        true,
+        "zh-CN",
+        DefaultOrder);
 
     public bool IsEnabled(RuntimeKind kind) => kind switch
     {
@@ -14,4 +28,14 @@ public sealed record RuntimeModulePreferences(
         RuntimeKind.Python => PythonEnabled,
         _ => false,
     };
+
+    public IReadOnlyList<RuntimeKind> GetModuleOrder()
+    {
+        var order = (ModuleOrder ?? [])
+            .Where(kind => DefaultOrder.Contains(kind))
+            .Distinct()
+            .ToList();
+        order.AddRange(DefaultOrder.Where(kind => !order.Contains(kind)));
+        return order;
+    }
 }

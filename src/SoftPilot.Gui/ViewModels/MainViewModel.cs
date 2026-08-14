@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using SoftPilot.Application;
 using SoftPilot.Application.Abstractions;
 using SoftPilot.Domain;
@@ -16,11 +16,12 @@ public partial class MainViewModel : ObservableObject
     private readonly IStateStore _state;
     private readonly IOperationCoordinator _operations;
     private readonly IGlobalRuntimeService _global;
-    private readonly IShellIntegrationService _shell;
     private readonly IRuntimeModulePreferencesStore _modulePreferences;
     private IReadOnlyList<RuntimeRow> _allManagedRuntimes = [];
     private IReadOnlyList<RuntimeRow> _allExternalRuntimes = [];
     private readonly Dictionary<RuntimeKind, IReadOnlyList<RuntimeRelease>> _recommendedReleases = [];
+    private readonly Dictionary<RuntimeTarget, RuntimeOperationFeedback> _runtimeFeedback = [];
+    private readonly HashSet<RuntimeTarget> _installingTargets = [];
     private bool _modulePreferencesLoaded;
 
     public MainViewModel(
@@ -29,42 +30,45 @@ public partial class MainViewModel : ObservableObject
         IStateStore state,
         IOperationCoordinator operations,
         IGlobalRuntimeService global,
-        IShellIntegrationService shell,
-        IRuntimeModulePreferencesStore modulePreferences,
-        IInstallationLayout layout)
+        IRuntimeModulePreferencesStore modulePreferences)
     {
         _detectors = detectors.ToArray();
         _providers = providers.ToArray();
         _state = state;
         _operations = operations;
         _global = global;
-        _shell = shell;
         _modulePreferences = modulePreferences;
-        RootPath = layout.Root;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
         InstallCommand = new AsyncRelayCommand(InstallAsync, CanInstall);
         UseSelectedCommand = new AsyncRelayCommand(UseSelectedAsync, CanUseSelected);
         UninstallSelectedCommand = new AsyncRelayCommand(UninstallSelectedAsync, CanUninstallSelected);
-        RestoreSelectedCommand = new AsyncRelayCommand(RestoreSelectedAsync, CanRestoreSelected);
-        EnableShellCommand = new AsyncRelayCommand(EnableShellAsync, CanRun);
-        DisableShellCommand = new AsyncRelayCommand(DisableShellAsync, CanRun);
         SaveModulePreferencesCommand = new AsyncRelayCommand(SaveModulePreferencesAsync, CanRun);
+        LanguageOptions =
+        [
+            new LanguageOption("zh-CN", "简体中文"),
+            new LanguageOption("en-US", "English"),
+        ];
+        SelectedLanguage = LanguageOptions[0];
+        ReplaceModuleSettings(RuntimeModulePreferences.Default);
     }
 
-    public string RootPath { get; }
     public ObservableCollection<RuntimeRow> ManagedRuntimes { get; } = [];
     public ObservableCollection<RuntimeRow> ExternalRuntimes { get; } = [];
+    public ObservableCollection<InstalledRuntimeRow> InstalledRuntimes { get; } = [];
     public ObservableCollection<RuntimeVersionOption> RecommendedVersions { get; } = [];
+    public ObservableCollection<RuntimeVersionRow> VersionRows { get; } = [];
     public ObservableCollection<TaskRow> Tasks { get; } = [];
+    public ObservableCollection<RuntimeModuleSetting> ModuleSettings { get; } = [];
+    public IReadOnlyList<LanguageOption> LanguageOptions { get; }
 
     public IAsyncRelayCommand RefreshCommand { get; }
     public IAsyncRelayCommand InstallCommand { get; }
     public IAsyncRelayCommand UseSelectedCommand { get; }
     public IAsyncRelayCommand UninstallSelectedCommand { get; }
-    public IAsyncRelayCommand RestoreSelectedCommand { get; }
-    public IAsyncRelayCommand EnableShellCommand { get; }
-    public IAsyncRelayCommand DisableShellCommand { get; }
     public IAsyncRelayCommand SaveModulePreferencesCommand { get; }
+
+    public event Action<UserNotification>? NotificationRequested;
+    public event Action? ModulePreferencesChanged;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RuntimeDisplayName))]
@@ -77,47 +81,69 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     public partial string RecommendedVersionHint { get; set; } = "正在读取官方版本目录…";
 
-    [ObservableProperty]
-    public partial bool MakeCurrentAfterInstall { get; set; } = true;
+    public bool NodeModuleEnabled => IsModuleEnabled(RuntimeKind.Node);
+    public bool JavaModuleEnabled => IsModuleEnabled(RuntimeKind.Java);
+    public bool PythonModuleEnabled => IsModuleEnabled(RuntimeKind.Python);
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(NodeModuleVisibility))]
-    [NotifyPropertyChangedFor(nameof(EnabledModuleSummary))]
-    public partial bool NodeModuleEnabled { get; set; } = true;
+    public partial LanguageOption? SelectedLanguage { get; private set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(JavaModuleVisibility))]
-    [NotifyPropertyChangedFor(nameof(EnabledModuleSummary))]
-    public partial bool JavaModuleEnabled { get; set; } = true;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(PythonModuleVisibility))]
-    [NotifyPropertyChangedFor(nameof(EnabledModuleSummary))]
-    public partial bool PythonModuleEnabled { get; set; } = true;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ProgressVisibility))]
     public partial bool IsBusy { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasStatus))]
-    public partial string StatusMessage { get; set; } = string.Empty;
+    [NotifyPropertyChangedFor(nameof(CatalogLoadingVisibility))]
+    [NotifyPropertyChangedFor(nameof(VersionRowsEmptyVisibility))]
+    public partial bool IsCatalogLoading { get; set; }
 
     [ObservableProperty]
-    public partial InfoBarSeverity StatusSeverity { get; set; } = InfoBarSeverity.Informational;
+    [NotifyPropertyChangedFor(nameof(RefreshIconVisibility))]
+    [NotifyPropertyChangedFor(nameof(RefreshProgressVisibility))]
+    public partial bool IsRefreshing { get; set; }
 
     [ObservableProperty]
-    public partial string ShellStatusText { get; set; } = "正在检查…";
+    public partial string ModuleSaveStatusText { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Brush ModuleSaveStatusBrush { get; set; } = new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
 
     [ObservableProperty]
     public partial RuntimeRow? SelectedRuntime { get; set; }
 
-    public bool HasStatus => StatusMessage.Length > 0;
-    public Visibility ProgressVisibility => IsBusy ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RefreshIconVisibility => IsRefreshing ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility RefreshProgressVisibility => IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility CatalogLoadingVisibility => IsCatalogLoading && VersionRows.Count == 0
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility VersionRowsEmptyVisibility => !IsCatalogLoading && VersionRows.Count == 0
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility InstalledRuntimesEmptyVisibility => InstalledRuntimes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility NodeModuleVisibility => NodeModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility JavaModuleVisibility => JavaModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PythonModuleVisibility => PythonModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
-    public string EnabledModuleSummary => $"左侧将显示 {GetEnabledModuleCount()} 个运行时模块";
+    public bool IsEnglish => SelectedLanguage?.Code == "en-US";
+    public string TaskHistoryText => T("任务历史", "Task history");
+    public string SettingsText => T("设置", "Settings");
+    public string RefreshText => T("刷新", "Refresh");
+    public string InstalledTabText => T("已安装", "Installed");
+    public string VersionManagementTabText => T("版本管理", "Version management");
+    public string NoInstalledText => T("暂无已安装版本", "No installed versions");
+    public string NoVersionsText => T("未加载到可管理版本，请刷新后重试", "No versions available. Refresh to try again.");
+    public string CatalogLoadingText => T("正在加载版本…", "Loading versions…");
+    public string VersionHeaderText => T("版本", "Version");
+    public string PathHeaderText => T("路径", "Path");
+    public string EnvironmentHeaderText => T("当前版本", "Current version");
+    public string ReleaseLineHeaderText => T("版本线", "Release line");
+    public string IsInstalledHeaderText => T("是否安装", "Installed");
+    public string OperationHeaderText => T("操作", "Action");
+    public string TimeHeaderText => T("时间", "Time");
+    public string StatusHeaderText => T("状态", "Status");
+    public string TaskTypeHeaderText => T("类型", "Type");
+    public string TargetHeaderText => T("目标", "Target");
+    public string ModulesText => T("模块", "Modules");
+    public string SaveModulesText => T("保存模块配置", "Save modules");
+    public string LanguageText => T("语言", "Language");
 
     public string RuntimeDisplayName => SelectedRuntimeKind switch
     {
@@ -135,13 +161,11 @@ public partial class MainViewModel : ObservableObject
         _ => "从官方目录选择推荐版本。",
     };
 
-    public bool IsModuleEnabled(RuntimeKind kind) => kind switch
-    {
-        RuntimeKind.Node => NodeModuleEnabled,
-        RuntimeKind.Java => JavaModuleEnabled,
-        RuntimeKind.Python => PythonModuleEnabled,
-        _ => false,
-    };
+    public bool IsModuleEnabled(RuntimeKind kind) =>
+        ModuleSettings.FirstOrDefault(item => item.Kind == kind)?.IsEnabled == true;
+
+    public IReadOnlyList<RuntimeKind> GetOrderedModuleKinds() =>
+        ModuleSettings.Select(item => item.Kind).ToArray();
 
     public void SelectRuntimeModule(RuntimeKind kind)
     {
@@ -155,23 +179,80 @@ public partial class MainViewModel : ObservableObject
         SelectedRuntimeKind = kind;
     }
 
+    public async Task InitializeAsync()
+    {
+        var preferencesWarning = await LoadModulePreferencesAsync();
+        await RefreshRuntimeDataAsync(includeExternal: false);
+        await LoadCachedRecommendedVersionsAsync();
+        await RefreshTasksAsync();
+        _ = RefreshStartupDataAsync(preferencesWarning);
+    }
+
     public async Task RefreshAsync()
     {
-        await RunBusyAsync(async () =>
+        IsRefreshing = true;
+        try
         {
-            var preferencesWarning = await LoadModulePreferencesAsync();
-            await RefreshRuntimeDataAsync(includeExternal: true);
-            var catalogWarnings = await RefreshRecommendedVersionsAsync();
-            await RefreshTasksAsync();
-            await RefreshShellStatusAsync();
-            var warnings = new[] { preferencesWarning }
-                .Concat(catalogWarnings)
-                .Where(message => !string.IsNullOrWhiteSpace(message))
-                .ToArray();
-            SetStatus(
-                warnings.Length == 0 ? "状态和官方版本目录已刷新。" : string.Join(" ", warnings),
-                warnings.Length == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
-        });
+            await RunBusyAsync(async () =>
+            {
+                var preferencesWarning = await LoadModulePreferencesAsync();
+                await RefreshRuntimeDataAsync(includeExternal: false);
+                var externalTask = RefreshExternalRuntimeDataAsync();
+                var catalogTask = RefreshRecommendedVersionsAsync(forceRefresh: true);
+                string? externalWarning = null;
+                try
+                {
+                    await externalTask;
+                }
+                catch (Exception exception)
+                {
+                    externalWarning = T(
+                        $"外部运行时扫描失败：{exception.Message}",
+                        $"External runtime scan failed: {exception.Message}");
+                }
+
+                var catalogWarnings = await catalogTask;
+                await RefreshTasksAsync();
+                var warnings = new[] { preferencesWarning, externalWarning }
+                    .Concat(catalogWarnings)
+                    .Where(message => !string.IsNullOrWhiteSpace(message))
+                    .ToArray();
+                if (warnings.Length > 0)
+                {
+                    NotifyUser(T("刷新未完全成功", "Refresh incomplete"), string.Join(" ", warnings), isError: true);
+                }
+            });
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
+    }
+
+    private async Task RefreshStartupDataAsync(string? preferencesWarning)
+    {
+        var catalogTask = RefreshRecommendedVersionsAsync(forceRefresh: false);
+        string? externalWarning = null;
+        try
+        {
+            await RefreshExternalRuntimeDataAsync();
+        }
+        catch (Exception exception)
+        {
+            externalWarning = T(
+                $"外部运行时扫描失败：{exception.Message}",
+                $"External runtime scan failed: {exception.Message}");
+        }
+
+        var catalogWarnings = await catalogTask;
+        var warnings = new[] { preferencesWarning, externalWarning }
+            .Concat(catalogWarnings)
+            .Where(message => !string.IsNullOrWhiteSpace(message))
+            .ToArray();
+        if (warnings.Length > 0 && _recommendedReleases.Count == 0)
+        {
+            NotifyUser(T("加载未完全成功", "Loading incomplete"), string.Join(" ", warnings), isError: true);
+        }
     }
 
     private async Task<string?> LoadModulePreferencesAsync()
@@ -192,97 +273,205 @@ public partial class MainViewModel : ObservableObject
             warning = exception.Message;
         }
 
-        NodeModuleEnabled = preferences.NodeEnabled;
-        JavaModuleEnabled = preferences.JavaEnabled;
-        PythonModuleEnabled = preferences.PythonEnabled;
+        ReplaceModuleSettings(preferences);
+        SelectedLanguage = LanguageOptions.FirstOrDefault(option => option.Code == preferences.Language)
+            ?? LanguageOptions[0];
+        NotifyLocalizedProperties();
         _modulePreferencesLoaded = true;
         return warning;
     }
 
-    private async Task SaveModulePreferencesAsync()
+    public async Task SaveModulePreferencesAsync()
     {
         await RunBusyAsync(async () =>
         {
-            var preferences = new RuntimeModulePreferences(
-                NodeModuleEnabled,
-                JavaModuleEnabled,
-                PythonModuleEnabled);
+            var preferences = CreateModulePreferences();
             await _modulePreferences.SaveAsync(preferences);
-            SetStatus("模块显示配置已保存。隐藏模块不会卸载已有版本。", InfoBarSeverity.Success);
+            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
+            ModuleSaveStatusText = T("已保存", "Saved");
+            ModulePreferencesChanged?.Invoke();
+        }, showSuccessOrFailureDialog: false,
+        onError: exception =>
+        {
+            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
+            ModuleSaveStatusText = T($"保存失败：{exception.Message}", $"Unable to save: {exception.Message}");
         });
     }
 
-    private async Task InstallAsync()
+    public async Task ChangeLanguageAsync(LanguageOption option)
     {
-        if (SelectedRecommendedVersion is null)
+        if (SelectedLanguage?.Code == option.Code)
         {
-            SetStatus("请先从官方推荐列表中选择一个版本。", InfoBarSeverity.Warning);
             return;
         }
 
-        var target = new RuntimeTarget(SelectedRuntimeKind, SelectedRecommendedVersion.Version);
+        SelectedLanguage = option;
+        NotifyLocalizedProperties();
+        ApplyRuntimeFilter();
+        await RefreshTasksAsync();
 
-        await RunBusyAsync(async () =>
+        try
         {
-            var progress = new Progress<OperationProgress>(value =>
-                SetStatus(value.Detail ?? value.Stage, InfoBarSeverity.Informational));
-            await _operations.InstallAsync(target, MakeCurrentAfterInstall, progress);
-            SetStatus($"{target} 安装完成。", InfoBarSeverity.Success);
+            var preferences = CreateModulePreferences(option.Code);
+            await _modulePreferences.SaveAsync(preferences);
+        }
+        catch (Exception exception)
+        {
+            NotifyUser(T("语言设置保存失败", "Unable to save language"), exception.Message, isError: true);
+        }
+    }
+
+    private Task InstallAsync()
+    {
+        if (SelectedRecommendedVersion is null)
+        {
+            NotifyUser(
+                T("无法安装", "Unable to install"),
+                T("请先选择一个版本。", "Select a version first."),
+                isError: true);
+            return Task.CompletedTask;
+        }
+
+        return InstallRuntimeAsync(SelectedRuntimeKind, SelectedRecommendedVersion.Version);
+    }
+
+    public Task InstallVersionAsync(RuntimeVersionRow row) =>
+        row.CanInstall ? InstallRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+
+    private async Task InstallRuntimeAsync(RuntimeKind kind, string version)
+    {
+        var target = new RuntimeTarget(kind, version);
+        if (!_installingTargets.Add(target))
+        {
+            return;
+        }
+
+        SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+            0,
+            T("等待安装…", "Waiting to install…"),
+            RuntimeFeedbackKind.Running,
+            true));
+        Exception? failure = null;
+        try
+        {
+            var progress = new Progress<OperationProgress>(value => SetRuntimeProgress(target, value));
+            await _operations.InstallAsync(target, makeCurrent: false, progress);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        finally
+        {
+            _installingTargets.Remove(target);
+            if (failure is null)
+            {
+                ClearRuntimeFeedback(target);
+            }
+            else
+            {
+                SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+                    GetRuntimeFeedback(target)?.Percentage ?? 0,
+                    T($"安装失败：{failure.Message}", $"Installation failed: {failure.Message}"),
+                    RuntimeFeedbackKind.Error,
+                    false));
+            }
             await RefreshCoreAsync();
-        });
+        }
     }
 
-    private async Task UseSelectedAsync()
+    private Task UseSelectedAsync() =>
+        UseRuntimeAsync(SelectedRuntime!.RuntimeKind, SelectedRuntime.Version);
+
+    public Task UseVersionAsync(RuntimeVersionRow row) =>
+        row.CanUse ? UseRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+
+    public Task UseInstalledRuntimeAsync(InstalledRuntimeRow row) =>
+        row.CanToggleEnvironment ? UseRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+
+    private async Task UseRuntimeAsync(RuntimeKind kind, string version)
     {
-        var selected = SelectedRuntime!;
+        var target = new RuntimeTarget(kind, version);
+        SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+            0,
+            T("正在设置当前版本…", "Setting current version…"),
+            RuntimeFeedbackKind.Running,
+            true));
         await RunBusyAsync(async () =>
         {
-            await _global.UseAsync(selected.RuntimeKind, selected.Version);
-            SetStatus($"已切换到 {selected.Kind}@{selected.Version}。", InfoBarSeverity.Success);
+            await _global.UseAsync(kind, version);
+            SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+                100,
+                T("已设为当前版本", "Current version set"),
+                RuntimeFeedbackKind.Success,
+                false));
             await RefreshCoreAsync();
-        });
+        }, showSuccessOrFailureDialog: false,
+        onError: exception => SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+            0,
+            T($"设置失败：{exception.Message}", $"Update failed: {exception.Message}"),
+            RuntimeFeedbackKind.Error,
+            false)));
     }
 
-    private async Task UninstallSelectedAsync()
+    public Task ClearGlobalVersionAsync(RuntimeVersionRow row) =>
+        row.CanClearGlobal ? ClearGlobalAsync(row.RuntimeKind) : Task.CompletedTask;
+
+    public Task ClearInstalledGlobalAsync(InstalledRuntimeRow row) =>
+        row.IsCurrent ? ClearGlobalAsync(row.RuntimeKind) : Task.CompletedTask;
+
+    private async Task ClearGlobalAsync(RuntimeKind kind)
     {
-        var selected = SelectedRuntime!;
+        var current = _allManagedRuntimes.FirstOrDefault(item => item.RuntimeKind == kind && item.IsCurrent);
+        RuntimeTarget? target = current is null ? null : new RuntimeTarget(kind, current.Version);
         await RunBusyAsync(async () =>
         {
-            await _operations.UninstallAsync(new RuntimeTarget(selected.RuntimeKind, selected.Version));
-            SetStatus($"{selected.Kind}@{selected.Version} 已移入回收站。", InfoBarSeverity.Success);
+            await _global.ClearAsync(kind);
+            if (target is not null)
+            {
+                SetRuntimeFeedback(target.Value, new RuntimeOperationFeedback(
+                    100,
+                    T("已取消当前版本", "Current version cleared"),
+                    RuntimeFeedbackKind.Success,
+                    false));
+            }
             await RefreshCoreAsync();
+        }, showSuccessOrFailureDialog: false,
+        onError: exception =>
+        {
+            if (target is not null)
+            {
+                SetRuntimeFeedback(target.Value, new RuntimeOperationFeedback(
+                    0,
+                    T($"取消失败：{exception.Message}", $"Unable to clear: {exception.Message}"),
+                    RuntimeFeedbackKind.Error,
+                    false));
+            }
         });
     }
 
-    private async Task RestoreSelectedAsync()
+    private Task UninstallSelectedAsync() =>
+        UninstallRuntimeAsync(SelectedRuntime!.RuntimeKind, SelectedRuntime.Version);
+
+    public Task UninstallVersionAsync(RuntimeVersionRow row) =>
+        row.CanUninstall ? UninstallRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+
+    public Task UninstallInstalledRuntimeAsync(InstalledRuntimeRow row) =>
+        row.CanUninstall ? UninstallRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+
+    private async Task UninstallRuntimeAsync(RuntimeKind kind, string version)
     {
-        var selected = SelectedRuntime!;
+        var target = new RuntimeTarget(kind, version);
         await RunBusyAsync(async () =>
         {
-            await _operations.RestoreAsync(new RuntimeTarget(selected.RuntimeKind, selected.Version));
-            SetStatus($"{selected.Kind}@{selected.Version} 已恢复。", InfoBarSeverity.Success);
+            await _operations.UninstallAsync(target);
             await RefreshCoreAsync();
-        });
-    }
-
-    private async Task EnableShellAsync()
-    {
-        await RunBusyAsync(async () =>
-        {
-            await _shell.EnableAsync();
-            await RefreshShellStatusAsync();
-            SetStatus("Shell 集成已启用；请打开新终端。", InfoBarSeverity.Success);
-        });
-    }
-
-    private async Task DisableShellAsync()
-    {
-        await RunBusyAsync(async () =>
-        {
-            await _shell.DisableAsync();
-            await RefreshShellStatusAsync();
-            SetStatus("原 PATH 与 JAVA_HOME 已恢复。", InfoBarSeverity.Success);
-        });
+        }, showSuccessOrFailureDialog: false,
+        onError: exception => SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+            0,
+            T($"卸载失败：{exception.Message}", $"Uninstall failed: {exception.Message}"),
+            RuntimeFeedbackKind.Error,
+            false)));
     }
 
     private async Task RefreshCoreAsync()
@@ -298,7 +487,7 @@ public partial class MainViewModel : ObservableObject
         _allManagedRuntimes = managed.Select(item => new RuntimeRow(
             item.Kind.ToString().ToLowerInvariant(),
             item.Version,
-            item.IsDeleted ? "回收站" : item.IsCurrent ? "当前" : "已安装",
+            item.IsDeleted ? T("已卸载", "Uninstalled") : item.IsCurrent ? T("当前", "Current") : T("已安装", "Installed"),
             item.IsDeleted ? item.TrashPath ?? item.InstallPath : item.InstallPath,
             item.Kind,
             item.IsCurrent,
@@ -306,33 +495,56 @@ public partial class MainViewModel : ObservableObject
 
         if (includeExternal)
         {
-            var external = new List<ExternalRuntime>();
-            foreach (var detector in _detectors)
-            {
-                external.AddRange(await detector.DetectAsync());
-            }
-
-            _allExternalRuntimes = external.Select(item => new RuntimeRow(
-                item.Kind.ToString().ToLowerInvariant(),
-                item.Version,
-                "外部只读",
-                item.ExecutablePath,
-                item.Kind,
-                false,
-                false)).ToArray();
+            await RefreshExternalRuntimeDataAsync();
+            return;
         }
 
         ApplyRuntimeFilter();
     }
 
-    private async Task<IReadOnlyList<string>> RefreshRecommendedVersionsAsync()
+    private async Task RefreshExternalRuntimeDataAsync()
     {
-        RecommendedVersionHint = "正在读取官方版本目录…";
+        var detected = await Task.WhenAll(_detectors.Select(detector => detector.DetectAsync()));
+        _allExternalRuntimes = detected
+            .SelectMany(items => items)
+            .Select(item => new RuntimeRow(
+                item.Kind.ToString().ToLowerInvariant(),
+                item.Version,
+                T("外部只读", "External, read-only"),
+                item.ExecutablePath,
+                item.Kind,
+                false,
+                false))
+            .ToArray();
+        ApplyRuntimeFilter();
+    }
+
+    private async Task LoadCachedRecommendedVersionsAsync()
+    {
+        var tasks = _providers
+            .OfType<ICachedRuntimeProvider>()
+            .Select(provider => provider.GetCachedCatalogAsync());
+        var entries = await Task.WhenAll(tasks);
+        foreach (var entry in entries.Where(entry => entry is not null))
+        {
+            _recommendedReleases[entry!.Kind] = RecommendedRuntimeReleaseSelector.Select(
+                entry.Kind,
+                entry.Releases);
+        }
+
+        ApplyRecommendedVersionOptions();
+    }
+
+    private async Task<IReadOnlyList<string>> RefreshRecommendedVersionsAsync(bool forceRefresh)
+    {
+        IsCatalogLoading = true;
         var tasks = _providers.Select(async provider =>
         {
             try
             {
-                var available = await provider.GetAvailableAsync();
+                var available = forceRefresh && provider is ICachedRuntimeProvider cachedProvider
+                    ? await cachedProvider.RefreshAvailableAsync()
+                    : await provider.GetAvailableAsync();
                 return new RuntimeCatalogResult(
                     provider.Kind,
                     RecommendedRuntimeReleaseSelector.Select(provider.Kind, available),
@@ -347,17 +559,24 @@ public partial class MainViewModel : ObservableObject
             }
         });
 
-        var results = await Task.WhenAll(tasks);
-        foreach (var result in results.Where(result => result.Releases is not null))
+        try
         {
-            _recommendedReleases[result.Kind] = result.Releases!;
-        }
+            var results = await Task.WhenAll(tasks);
+            foreach (var result in results.Where(result => result.Releases is not null))
+            {
+                _recommendedReleases[result.Kind] = result.Releases!;
+            }
 
-        ApplyRecommendedVersionOptions();
-        return results
-            .Where(result => result.Error is not null)
-            .Select(result => result.Error!)
-            .ToArray();
+            ApplyRecommendedVersionOptions();
+            return results
+                .Where(result => result.Error is not null)
+                .Select(result => result.Error!)
+                .ToArray();
+        }
+        finally
+        {
+            IsCatalogLoading = false;
+        }
     }
 
     private async Task RefreshTasksAsync()
@@ -365,15 +584,25 @@ public partial class MainViewModel : ObservableObject
         var operations = await _state.GetOperationsAsync();
         Replace(Tasks, operations.Select(item => new TaskRow(
             item.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-            item.Status.ToString(),
-            item.Name,
-            item.Kind is null ? "-" : $"{item.Kind.Value.ToString().ToLowerInvariant()}@{item.Version}")));
+            GetTaskStatusText(item.Status),
+            GetTaskStatusBrush(item.Status),
+            GetTaskName(item.Name),
+            GetTaskNameBrush(item.Name),
+            item.Kind is null ? "-" : $"{GetRuntimeDisplayName(item.Kind.Value)}@{item.Version}")));
     }
 
     private void ApplyRuntimeFilter()
     {
         Replace(ManagedRuntimes, _allManagedRuntimes.Where(item => item.RuntimeKind == SelectedRuntimeKind));
         Replace(ExternalRuntimes, _allExternalRuntimes.Where(item => item.RuntimeKind == SelectedRuntimeKind));
+        var installed = _allManagedRuntimes
+            .Where(item => item.RuntimeKind == SelectedRuntimeKind && !item.IsDeleted)
+            .Select(item => CreateInstalledRuntimeRow(item, isManaged: true))
+            .Concat(_allExternalRuntimes
+                .Where(item => item.RuntimeKind == SelectedRuntimeKind)
+                .Select(item => CreateInstalledRuntimeRow(item, isManaged: false)));
+        Replace(InstalledRuntimes, installed);
+        OnPropertyChanged(nameof(InstalledRuntimesEmptyVisibility));
         SelectedRuntime = null;
         ApplyRecommendedVersionOptions();
     }
@@ -396,6 +625,96 @@ public partial class MainViewModel : ObservableObject
                 RuntimeKind.Python => "Python 没有 LTS；仅显示最新五个稳定分支，每条分支自动选择最新补丁。",
                 _ => "已从官方目录筛选推荐版本。",
             };
+        ApplyVersionRows();
+    }
+
+    private void ApplyVersionRows()
+    {
+        var releases = _recommendedReleases.GetValueOrDefault(SelectedRuntimeKind, []);
+        var managed = _allManagedRuntimes
+            .Where(item => item.RuntimeKind == SelectedRuntimeKind && !item.IsDeleted)
+            .ToArray();
+        var included = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var rows = new List<RuntimeVersionRow>();
+
+        foreach (var release in releases)
+        {
+            included.Add(release.Version);
+            rows.Add(CreateVersionRow(
+                release.Version,
+                managed.FirstOrDefault(item => string.Equals(
+                    item.Version,
+                    release.Version,
+                    StringComparison.OrdinalIgnoreCase)),
+                release.DownloadUri,
+                release.ReleasePageUri));
+        }
+
+        rows.AddRange(managed
+            .Where(item => included.Add(item.Version))
+            .Select(item => CreateVersionRow(
+                item.Version,
+                item,
+                downloadUri: null,
+                releasePageUri: null)));
+
+        Replace(VersionRows, rows);
+        OnPropertyChanged(nameof(CatalogLoadingVisibility));
+        OnPropertyChanged(nameof(VersionRowsEmptyVisibility));
+    }
+
+    private RuntimeVersionRow CreateVersionRow(
+        string version,
+        RuntimeRow? managed,
+        Uri? downloadUri,
+        Uri? releasePageUri)
+    {
+        var line = GetReleaseLine(SelectedRuntimeKind, version);
+        var releaseLine = SelectedRuntimeKind switch
+        {
+            RuntimeKind.Node => $"Node.js {line} LTS",
+            RuntimeKind.Java => $"Temurin JDK {line} LTS",
+            RuntimeKind.Python => $"Python {line} 稳定版",
+            _ => GetRuntimeDisplayName(SelectedRuntimeKind),
+        };
+        var state = managed switch
+        {
+            { IsCurrent: true } => T("当前全局", "Current global"),
+            not null => T("已安装", "Installed"),
+            _ => T("未安装", "Not installed"),
+        };
+
+        var feedback = GetRuntimeFeedback(new RuntimeTarget(SelectedRuntimeKind, version));
+        return new RuntimeVersionRow(
+            SelectedRuntimeKind,
+            releaseLine,
+            version,
+            state,
+            managed is not null,
+            managed?.IsCurrent == true,
+            managed?.IsDeleted == true,
+            T("安装", "Install"),
+            T("卸载", "Uninstall"),
+            downloadUri?.AbsoluteUri,
+            releasePageUri?.AbsoluteUri,
+            feedback);
+    }
+
+    private InstalledRuntimeRow CreateInstalledRuntimeRow(RuntimeRow item, bool isManaged)
+    {
+        var feedback = GetRuntimeFeedback(new RuntimeTarget(item.RuntimeKind, item.Version));
+        return new InstalledRuntimeRow(
+            item.RuntimeKind,
+            item.Version,
+            item.Path,
+            isManaged,
+            item.IsCurrent,
+            item.IsCurrent
+                ? T("取消当前版本", "Clear current version")
+                : T("设为当前版本", "Set current version"),
+            T("卸载", "Uninstall"),
+            T("复制路径", "Copy path"),
+            feedback);
     }
 
     private RuntimeVersionOption CreateVersionOption(RuntimeRelease release)
@@ -419,15 +738,10 @@ public partial class MainViewModel : ObservableObject
         return new RuntimeVersionOption(release.Version, label, managed is not null);
     }
 
-    private async Task RefreshShellStatusAsync()
-    {
-        var status = await _shell.GetStatusAsync();
-        ShellStatusText = status.IsEnabled
-            ? status.Problem ?? "已启用；shims 位于用户 PATH 前部。"
-            : "未启用。SoftPilot 不会自动修改用户环境变量。";
-    }
-
-    private async Task RunBusyAsync(Func<Task> action)
+    private async Task RunBusyAsync(
+        Func<Task> action,
+        bool showSuccessOrFailureDialog = true,
+        Action<Exception>? onError = null)
     {
         if (IsBusy)
         {
@@ -442,7 +756,20 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception exception)
         {
-            SetStatus(exception.Message, InfoBarSeverity.Error);
+            try
+            {
+                await RefreshTasksAsync();
+            }
+            catch
+            {
+                // Preserve the original operation error if task-history refresh also fails.
+            }
+
+            onError?.Invoke(exception);
+            if (showSuccessOrFailureDialog)
+            {
+                NotifyUser(T("操作失败", "Operation failed"), exception.Message, isError: true);
+            }
         }
         finally
         {
@@ -451,17 +778,10 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private int GetEnabledModuleCount() =>
-        (NodeModuleEnabled ? 1 : 0) +
-        (JavaModuleEnabled ? 1 : 0) +
-        (PythonModuleEnabled ? 1 : 0);
-
     private bool CanRun() => !IsBusy;
     private bool CanInstall() => !IsBusy && SelectedRecommendedVersion is { IsManaged: false };
     private bool CanUseSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
     private bool CanUninstallSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
-    private bool CanRestoreSelected() => !IsBusy && SelectedRuntime is { IsDeleted: true };
-
     partial void OnSelectedRuntimeKindChanged(RuntimeKind value) => ApplyRuntimeFilter();
     partial void OnSelectedRecommendedVersionChanged(RuntimeVersionOption? value) => InstallCommand.NotifyCanExecuteChanged();
     partial void OnSelectedRuntimeChanged(RuntimeRow? value) => NotifyCommands();
@@ -488,16 +808,193 @@ public partial class MainViewModel : ObservableObject
         InstallCommand.NotifyCanExecuteChanged();
         UseSelectedCommand.NotifyCanExecuteChanged();
         UninstallSelectedCommand.NotifyCanExecuteChanged();
-        RestoreSelectedCommand.NotifyCanExecuteChanged();
-        EnableShellCommand.NotifyCanExecuteChanged();
-        DisableShellCommand.NotifyCanExecuteChanged();
         SaveModulePreferencesCommand.NotifyCanExecuteChanged();
     }
 
-    private void SetStatus(string message, InfoBarSeverity severity)
+    private string GetTaskStatusText(OperationStatus status) => status switch
     {
-        StatusMessage = message;
-        StatusSeverity = severity;
+        OperationStatus.Running => T("进行中", "Running"),
+        OperationStatus.Succeeded => T("成功", "Succeeded"),
+        OperationStatus.Failed => T("失败", "Failed"),
+        OperationStatus.Cancelled => T("已取消", "Cancelled"),
+        _ => status.ToString(),
+    };
+
+    private static Brush GetTaskStatusBrush(OperationStatus status) => status switch
+    {
+        OperationStatus.Succeeded => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
+        OperationStatus.Failed => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
+        OperationStatus.Running => new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
+        _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
+    };
+
+    private string GetTaskName(string name) => name.ToLowerInvariant() switch
+    {
+        "install" => T("安装", "Install"),
+        "uninstall" => T("卸载", "Uninstall"),
+        "restore" => T("恢复（历史）", "Restore (history)"),
+        _ => name,
+    };
+
+    private static Brush GetTaskNameBrush(string name) => name.ToLowerInvariant() switch
+    {
+        "install" => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
+        "uninstall" => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
+        _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
+    };
+
+    private string T(string chinese, string english) => IsEnglish ? english : chinese;
+
+    private void NotifyUser(string title, string message, bool isError) =>
+        NotificationRequested?.Invoke(new UserNotification(title, message, isError));
+
+    private void NotifyLocalizedProperties()
+    {
+        string[] properties =
+        [
+            nameof(TaskHistoryText), nameof(SettingsText), nameof(RefreshText),
+            nameof(InstalledTabText),
+            nameof(VersionManagementTabText), nameof(NoInstalledText), nameof(NoVersionsText),
+            nameof(CatalogLoadingText),
+            nameof(VersionHeaderText), nameof(PathHeaderText),
+            nameof(EnvironmentHeaderText), nameof(ReleaseLineHeaderText), nameof(IsInstalledHeaderText),
+            nameof(OperationHeaderText), nameof(TimeHeaderText),
+            nameof(StatusHeaderText), nameof(TaskTypeHeaderText), nameof(TargetHeaderText),
+            nameof(ModulesText), nameof(SaveModulesText), nameof(LanguageText),
+            nameof(RuntimeInstallDescription),
+        ];
+        foreach (var property in properties)
+        {
+            OnPropertyChanged(property);
+        }
+    }
+
+    private void SetRuntimeProgress(RuntimeTarget target, OperationProgress progress)
+    {
+        if (!_installingTargets.Contains(target))
+        {
+            return;
+        }
+
+        var previousPercentage = GetRuntimeFeedback(target)?.Percentage ?? 0;
+        var percentage = progress.Percentage is { } value
+            ? Math.Max(previousPercentage, Math.Clamp(value, 0, 100))
+            : previousPercentage;
+        var message = IsEnglish
+            ? progress.Stage.ToLowerInvariant() switch
+            {
+                "prepare" => "Preparing…",
+                "resolve" => "Resolving version…",
+                "download" => "Downloading…",
+                "extract" => "Extracting…",
+                "health" => "Checking runtime…",
+                "commit" => "Saving runtime…",
+                "state" => "Saving state…",
+                "current" => "Updating global version…",
+                "complete" => "Complete",
+                _ => progress.Stage,
+            }
+            : progress.Detail ?? progress.Stage;
+        SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+            percentage,
+            message,
+            RuntimeFeedbackKind.Running,
+            true));
+    }
+
+    private RuntimeOperationFeedback? GetRuntimeFeedback(RuntimeTarget target) =>
+        _runtimeFeedback.GetValueOrDefault(target);
+
+    private void SetRuntimeFeedback(RuntimeTarget target, RuntimeOperationFeedback feedback)
+    {
+        _runtimeFeedback[target] = feedback;
+        foreach (var row in VersionRows.Where(row =>
+                     row.RuntimeKind == target.Kind
+                     && string.Equals(row.Version, target.Version, StringComparison.OrdinalIgnoreCase)))
+        {
+            row.UpdateFeedback(feedback);
+        }
+
+        foreach (var row in InstalledRuntimes.Where(row =>
+                     row.RuntimeKind == target.Kind
+                     && string.Equals(row.Version, target.Version, StringComparison.OrdinalIgnoreCase)))
+        {
+            row.UpdateFeedback(feedback);
+        }
+    }
+
+    private void ClearRuntimeFeedback(RuntimeTarget target)
+    {
+        _runtimeFeedback.Remove(target);
+        foreach (var row in VersionRows.Where(row =>
+                     row.RuntimeKind == target.Kind
+                     && string.Equals(row.Version, target.Version, StringComparison.OrdinalIgnoreCase)))
+        {
+            row.UpdateFeedback(null);
+        }
+
+        foreach (var row in InstalledRuntimes.Where(row =>
+                     row.RuntimeKind == target.Kind
+                     && string.Equals(row.Version, target.Version, StringComparison.OrdinalIgnoreCase)))
+        {
+            row.UpdateFeedback(null);
+        }
+    }
+
+    private RuntimeModulePreferences CreateModulePreferences(string? language = null) => new(
+        IsModuleEnabled(RuntimeKind.Node),
+        IsModuleEnabled(RuntimeKind.Java),
+        IsModuleEnabled(RuntimeKind.Python),
+        language ?? SelectedLanguage?.Code ?? "zh-CN",
+        GetOrderedModuleKinds());
+
+    private void ReplaceModuleSettings(RuntimeModulePreferences preferences)
+    {
+        foreach (var setting in ModuleSettings)
+        {
+            setting.PropertyChanged -= OnModuleSettingPropertyChanged;
+        }
+
+        ModuleSettings.Clear();
+        foreach (var kind in preferences.GetModuleOrder())
+        {
+            var setting = new RuntimeModuleSetting(
+                kind,
+                GetRuntimeDisplayName(kind),
+                GetRuntimeIconPath(kind),
+                preferences.IsEnabled(kind));
+            setting.PropertyChanged += OnModuleSettingPropertyChanged;
+            ModuleSettings.Add(setting);
+        }
+
+        NotifyModuleVisibilityChanged();
+    }
+
+    private static string GetRuntimeIconPath(RuntimeKind kind) => kind switch
+    {
+        RuntimeKind.Node => "ms-appx:///Assets/RuntimeIcons/nodejs.svg",
+        RuntimeKind.Java => "ms-appx:///Assets/RuntimeIcons/java.svg",
+        RuntimeKind.Python => "ms-appx:///Assets/RuntimeIcons/python.svg",
+        _ => string.Empty,
+    };
+
+    private void OnModuleSettingPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(RuntimeModuleSetting.IsEnabled))
+        {
+            ModuleSaveStatusText = string.Empty;
+            NotifyModuleVisibilityChanged();
+        }
+    }
+
+    private void NotifyModuleVisibilityChanged()
+    {
+        OnPropertyChanged(nameof(NodeModuleEnabled));
+        OnPropertyChanged(nameof(JavaModuleEnabled));
+        OnPropertyChanged(nameof(PythonModuleEnabled));
+        OnPropertyChanged(nameof(NodeModuleVisibility));
+        OnPropertyChanged(nameof(JavaModuleVisibility));
+        OnPropertyChanged(nameof(PythonModuleVisibility));
     }
 
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> values)
@@ -521,7 +1018,202 @@ public sealed record RuntimeRow(
 
 public sealed record RuntimeVersionOption(string Version, string DisplayName, bool IsManaged);
 
-public sealed record TaskRow(string StartedAt, string Status, string Name, string Target);
+public sealed class RuntimeVersionRow : ObservableObject
+{
+    private RuntimeOperationFeedback? _feedback;
+
+    public RuntimeVersionRow(
+        RuntimeKind runtimeKind,
+        string releaseLine,
+        string version,
+        string state,
+        bool isManaged,
+        bool isCurrent,
+        bool isDeleted,
+        string installText,
+        string uninstallText,
+        string? downloadUrl,
+        string? releasePageUrl,
+        RuntimeOperationFeedback? feedback)
+    {
+        RuntimeKind = runtimeKind;
+        ReleaseLine = releaseLine;
+        Version = version;
+        State = state;
+        IsManaged = isManaged;
+        IsCurrent = isCurrent;
+        IsDeleted = isDeleted;
+        InstallText = installText;
+        UninstallText = uninstallText;
+        DownloadUrl = downloadUrl;
+        ReleasePageUrl = releasePageUrl;
+        _feedback = feedback;
+    }
+
+    public RuntimeKind RuntimeKind { get; }
+    public string ReleaseLine { get; }
+    public string Version { get; }
+    public string State { get; }
+    public bool IsManaged { get; }
+    public bool IsCurrent { get; }
+    public bool IsDeleted { get; }
+    public string InstallText { get; }
+    public string UninstallText { get; }
+    public string? DownloadUrl { get; }
+    public string? ReleasePageUrl { get; }
+    public bool CanInstall => !IsManaged && _feedback?.IsActive != true;
+    public bool CanUse => IsManaged && !IsCurrent && !IsDeleted;
+    public bool CanClearGlobal => IsCurrent && !IsDeleted;
+    public bool CanUninstall => IsManaged && !IsCurrent && !IsDeleted;
+    public Visibility InstalledVisibility => IsManaged && !IsDeleted ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility InstallVisibility => CanInstall ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility UseVisibility => CanUse ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ClearGlobalVisibility => CanClearGlobal ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility UninstallVisibility => CanUninstall ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility VersionLinkVisibility => DownloadUrl is not null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility VersionTextVisibility => DownloadUrl is null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ReleasePageLinkVisibility => ReleasePageUrl is not null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ReleasePageTextVisibility => ReleasePageUrl is null ? Visibility.Visible : Visibility.Collapsed;
+    public double OperationPercentage => _feedback?.Percentage ?? 0;
+    public string OperationStatusText => _feedback?.Message ?? string.Empty;
+    public Brush OperationStatusBrush => RuntimeFeedbackBrushes.Get(_feedback?.Kind);
+    public Visibility ProgressVisibility => _feedback?.IsActive == true ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility FeedbackVisibility => string.IsNullOrWhiteSpace(_feedback?.Message)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public void UpdateFeedback(RuntimeOperationFeedback? feedback)
+    {
+        _feedback = feedback;
+        OnPropertyChanged(nameof(OperationPercentage));
+        OnPropertyChanged(nameof(OperationStatusText));
+        OnPropertyChanged(nameof(OperationStatusBrush));
+        OnPropertyChanged(nameof(ProgressVisibility));
+        OnPropertyChanged(nameof(FeedbackVisibility));
+        OnPropertyChanged(nameof(CanInstall));
+        OnPropertyChanged(nameof(InstallVisibility));
+    }
+}
+
+public sealed class InstalledRuntimeRow : ObservableObject
+{
+    private RuntimeOperationFeedback? _feedback;
+    private string _pathStatusText = string.Empty;
+
+    public InstalledRuntimeRow(
+        RuntimeKind runtimeKind,
+        string version,
+        string path,
+        bool isManaged,
+        bool isCurrent,
+        string environmentActionName,
+        string uninstallText,
+        string copyPathToolTip,
+        RuntimeOperationFeedback? feedback)
+    {
+        RuntimeKind = runtimeKind;
+        Version = version;
+        Path = path;
+        IsManaged = isManaged;
+        IsCurrent = isCurrent;
+        EnvironmentActionName = environmentActionName;
+        UninstallText = uninstallText;
+        CopyPathToolTip = copyPathToolTip;
+        _feedback = feedback;
+    }
+
+    public RuntimeKind RuntimeKind { get; }
+    public string Version { get; }
+    public string Path { get; }
+    public bool IsManaged { get; }
+    public bool IsCurrent { get; }
+    public string EnvironmentActionName { get; }
+    public string UninstallText { get; }
+    public string CopyPathToolTip { get; }
+    public bool CanToggleEnvironment => IsManaged;
+    public bool CanUninstall => IsManaged && !IsCurrent;
+    public Visibility SetEnvironmentVisibility => IsManaged && !IsCurrent ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ClearEnvironmentVisibility => IsManaged && IsCurrent ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility UninstallVisibility => CanUninstall ? Visibility.Visible : Visibility.Collapsed;
+    public string OperationStatusText => _feedback?.Message ?? string.Empty;
+    public Brush OperationStatusBrush => RuntimeFeedbackBrushes.Get(_feedback?.Kind);
+    public Visibility FeedbackVisibility => string.IsNullOrWhiteSpace(_feedback?.Message)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public string PathStatusText => _pathStatusText;
+    public Visibility PathStatusVisibility => string.IsNullOrWhiteSpace(_pathStatusText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public void UpdateFeedback(RuntimeOperationFeedback? feedback)
+    {
+        _feedback = feedback;
+        OnPropertyChanged(nameof(OperationStatusText));
+        OnPropertyChanged(nameof(OperationStatusBrush));
+        OnPropertyChanged(nameof(FeedbackVisibility));
+    }
+
+    public void SetPathStatus(string text)
+    {
+        _pathStatusText = text;
+        OnPropertyChanged(nameof(PathStatusText));
+        OnPropertyChanged(nameof(PathStatusVisibility));
+    }
+}
+
+public sealed record RuntimeOperationFeedback(
+    double Percentage,
+    string Message,
+    RuntimeFeedbackKind Kind,
+    bool IsActive);
+
+public enum RuntimeFeedbackKind
+{
+    Running,
+    Success,
+    Error,
+}
+
+internal static class RuntimeFeedbackBrushes
+{
+    public static Brush Get(RuntimeFeedbackKind? kind) => kind switch
+    {
+        RuntimeFeedbackKind.Success => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
+        RuntimeFeedbackKind.Error => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
+        RuntimeFeedbackKind.Running => new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue),
+        _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
+    };
+}
+
+public sealed partial class RuntimeModuleSetting : ObservableObject
+{
+    public RuntimeModuleSetting(RuntimeKind kind, string displayName, string iconPath, bool isEnabled)
+    {
+        Kind = kind;
+        DisplayName = displayName;
+        IconPath = iconPath;
+        IsEnabled = isEnabled;
+    }
+
+    public RuntimeKind Kind { get; }
+    public string DisplayName { get; }
+    public string IconPath { get; }
+
+    [ObservableProperty]
+    public partial bool IsEnabled { get; set; }
+}
+
+public sealed record TaskRow(
+    string StartedAt,
+    string Status,
+    Brush StatusBrush,
+    string Name,
+    Brush NameBrush,
+    string Target);
+
+public sealed record LanguageOption(string Code, string DisplayName);
+
+public sealed record UserNotification(string Title, string Message, bool IsError);
 
 internal sealed record RuntimeCatalogResult(
     RuntimeKind Kind,

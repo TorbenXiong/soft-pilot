@@ -154,10 +154,18 @@ internal static class RegistrationService
         Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(
             @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SoftPilot",
             throwOnMissingSubKey: false);
-        var shortcut = Path.Combine(
+        var startMenuShortcut = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
             "Programs",
             "SoftPilot.lnk");
+        DeleteShortcutIfPresent(startMenuShortcut);
+        DeleteShortcutIfPresent(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "SoftPilot.lnk"));
+    }
+
+    private static void DeleteShortcutIfPresent(string shortcut)
+    {
         if (File.Exists(shortcut))
         {
             File.Delete(shortcut);

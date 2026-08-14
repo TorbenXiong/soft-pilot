@@ -43,9 +43,19 @@ public static class DependencyInjection
         services.AddSingleton<ICacheService, CacheService>();
         services.AddSingleton<IDoctorService, DoctorService>();
 
-        services.AddSingleton<IRuntimeProvider, NodeRuntimeProvider>();
-        services.AddSingleton<IRuntimeProvider, TemurinRuntimeProvider>();
-        services.AddSingleton<IRuntimeProvider, PythonRuntimeProvider>();
+        services.AddSingleton<RuntimeCatalogCache>();
+        services.AddSingleton<NodeRuntimeProvider>();
+        services.AddSingleton<TemurinRuntimeProvider>();
+        services.AddSingleton<PythonRuntimeProvider>();
+        services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
+            provider.GetRequiredService<NodeRuntimeProvider>(),
+            provider.GetRequiredService<RuntimeCatalogCache>()));
+        services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
+            provider.GetRequiredService<TemurinRuntimeProvider>(),
+            provider.GetRequiredService<RuntimeCatalogCache>()));
+        services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
+            provider.GetRequiredService<PythonRuntimeProvider>(),
+            provider.GetRequiredService<RuntimeCatalogCache>()));
 
         services.AddSingleton<IExternalRuntimeDetector>(provider =>
             new WindowsExternalRuntimeDetector(RuntimeKind.Node, provider.GetRequiredService<ProcessRunner>()));
@@ -66,5 +76,7 @@ public static class DependencyInjection
         }
 
         await services.GetRequiredService<IStateStore>().InitializeAsync(cancellationToken);
+        await services.GetRequiredService<GlobalRuntimeService>()
+            .ReconcileShellIntegrationAsync(cancellationToken);
     }
 }

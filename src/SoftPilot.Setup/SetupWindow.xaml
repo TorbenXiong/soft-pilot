@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="安装 SoftPilot"
-        Width="760" Height="610" MinWidth="680" MinHeight="560"
+        Width="760" Height="460" MinWidth="680" MinHeight="440"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}">
     <Grid Margin="40">
@@ -14,58 +14,48 @@
 
         <StackPanel>
             <TextBlock Text="安装 SoftPilot" FontSize="30" FontWeight="SemiBold" />
-            <TextBlock Margin="0,8,0,0"
-                       Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
-                       Text="选择父目录；安装器将按大小写敏感规则计算最终 SoftPilot Root。"
-                       TextWrapping="Wrap" />
         </StackPanel>
 
-        <StackPanel Grid.Row="1" Margin="0,32,0,32">
-            <TextBlock Text="父目录" FontWeight="SemiBold" />
+        <StackPanel Grid.Row="1" Margin="0,28,0,24">
+            <TextBlock Text="安装目录" FontWeight="SemiBold" />
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBox x:Name="ParentPathBox" IsReadOnly="True"
-                         AutomationProperties.Name="所选父目录" />
-                <Button Grid.Column="1" Margin="12,0,0,0" MinWidth="120"
+                <TextBox x:Name="InstallPathBox" IsReadOnly="True"
+                         MinHeight="40" VerticalContentAlignment="Center"
+                         FontFamily="Cascadia Mono,Consolas" FontSize="16"
+                         AutomationProperties.Name="最终绝对安装路径" />
+                <Button x:Name="ChooseFolderButton" Grid.Column="1" Margin="12,0,0,0"
+                        MinWidth="120" MinHeight="40"
                         Content="选择文件夹" Click="OnChooseFolder" />
             </Grid>
-            <TextBlock Margin="0,8,0,0"
-                       Foreground="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}"
-                       Text="不能手工输入。选择 D:\ 时，实际写入位置为 D:\SoftPilot。"
+            <TextBlock x:Name="ValidationText" Margin="0,8,0,0"
                        TextWrapping="Wrap" />
 
-            <Border Margin="0,28,0,0" Padding="20" CornerRadius="12"
-                    BorderThickness="1"
-                    BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
-                    Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}">
-                <StackPanel>
-                    <TextBlock Text="最终安装位置" FontWeight="SemiBold" />
-                    <TextBlock x:Name="FinalPathText" Margin="0,8,0,0"
-                               FontFamily="Cascadia Mono,Consolas" FontSize="16"
-                               TextWrapping="Wrap"
-                               AutomationProperties.Name="最终绝对安装路径" />
-                    <TextBlock x:Name="ValidationText" Margin="0,10,0,0"
-                               TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
-
-            <Border Margin="0,24,0,0" Padding="16" CornerRadius="8"
+            <Border Margin="0,20,0,0" Padding="16" CornerRadius="8"
                     Background="#E8F3FC">
                 <TextBlock Foreground="#143D59" TextWrapping="Wrap"
                            Text="覆盖升级只替换 bin。运行时、状态、缓存、回收站与日志不会被清空。" />
             </Border>
 
-            <TextBlock x:Name="ProgressText" Margin="0,24,0,8"
+            <TextBlock x:Name="ProgressText" Margin="0,20,0,8"
+                       Visibility="Collapsed"
                        AutomationProperties.LiveSetting="Polite" />
             <ProgressBar x:Name="InstallProgress" Height="6" Minimum="0" Maximum="100"
                          Visibility="Collapsed" />
         </StackPanel>
 
         <Grid Grid.Row="2">
-            <Button x:Name="InstallButton" HorizontalAlignment="Right" MinWidth="120"
+            <CheckBox x:Name="LaunchAfterInstallBox"
+                      Content="安装完成后启动 SoftPilot"
+                      IsChecked="True"
+                      MinHeight="40"
+                      VerticalContentAlignment="Center"
+                      AutomationProperties.Name="安装完成后启动 SoftPilot" />
+            <Button x:Name="InstallButton" HorizontalAlignment="Right"
+                    MinWidth="120" MinHeight="40"
                     Background="#0F6CBD" Foreground="White" BorderBrush="#0F6CBD"
                     Content="安装" Click="OnInstall" />
         </Grid>

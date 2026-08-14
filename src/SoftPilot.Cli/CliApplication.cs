@@ -67,8 +67,7 @@ public sealed class CliApplication
         runtime.Subcommands.Add(BuildAvailableCommand());
         runtime.Subcommands.Add(BuildRuntimeListCommand());
         runtime.Subcommands.Add(BuildInstallCommand());
-        runtime.Subcommands.Add(BuildTargetCommand("uninstall", "软删除已安装版本", _operations.UninstallAsync));
-        runtime.Subcommands.Add(BuildTargetCommand("restore", "恢复七日内软删除版本", _operations.RestoreAsync));
+        runtime.Subcommands.Add(BuildTargetCommand("uninstall", "卸载并删除已安装版本", _operations.UninstallAsync));
         return runtime;
     }
 
@@ -189,18 +188,7 @@ public sealed class CliApplication
 
     private Command BuildShellCommand()
     {
-        var shell = new Command("shell", "管理用户 Shell 集成");
-        shell.Subcommands.Add(SimpleCommand("enable", "启用 shim PATH 和 JAVA_HOME", async token =>
-        {
-            await _shell.EnableAsync(token);
-            Console.WriteLine("Shell 集成已启用；新终端将读取更新后的环境。");
-        }));
-        shell.Subcommands.Add(SimpleCommand("disable", "恢复启用前的 PATH 和 JAVA_HOME", async token =>
-        {
-            await _shell.DisableAsync(token);
-            Console.WriteLine("Shell 环境已从快照恢复。");
-        }));
-
+        var shell = new Command("shell", "查看自动终端集成状态");
         var statusJson = JsonOption();
         var status = new Command("status", "显示 Shell 集成状态") { statusJson };
         status.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
