@@ -47,8 +47,8 @@ internal sealed class InstallerEngine
             layout.EnsureWorkspace();
             RegisterInstallation(layout);
 
-            progress?.Report(new InstallProgress(90, "正在创建开始菜单快捷方式…"));
-            ShortcutService.CreateStartMenuShortcut(Path.Combine(layout.BinDirectory, "SoftPilot.exe"));
+            progress?.Report(new InstallProgress(90, "正在创建快捷方式…"));
+            ShortcutService.CreateShortcuts(Path.Combine(layout.BinDirectory, "SoftPilot.exe"));
 
             if (Directory.Exists(previous))
             {
@@ -235,15 +235,23 @@ internal sealed record InstallProgress(double Percentage, string Message);
 
 internal static class ShortcutService
 {
-    public static void CreateStartMenuShortcut(string target)
+    public static void CreateShortcuts(string target)
     {
         var startMenuDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
             "Programs");
         Directory.CreateDirectory(startMenuDirectory);
-        var shortcutPath = Path.Combine(startMenuDirectory, "SoftPilot.lnk");
+        CreateShortcut(Path.Combine(startMenuDirectory, "SoftPilot.lnk"), target);
+
+        var desktopDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        Directory.CreateDirectory(desktopDirectory);
+        CreateShortcut(Path.Combine(desktopDirectory, "SoftPilot.lnk"), target);
+    }
+
+    private static void CreateShortcut(string shortcutPath, string target)
+    {
         var shellType = Type.GetTypeFromProgID("WScript.Shell")
-            ?? throw new InvalidOperationException("系统不支持创建开始菜单快捷方式。");
+            ?? throw new InvalidOperationException("系统不支持创建快捷方式。");
         dynamic shell = Activator.CreateInstance(shellType)
             ?? throw new InvalidOperationException("无法创建 WScript.Shell 对象。");
         dynamic shortcut = shell.CreateShortcut(shortcutPath);

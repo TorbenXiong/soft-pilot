@@ -7,12 +7,16 @@ namespace SoftPilot.Infrastructure.Providers;
 public sealed class PythonRuntimeProvider : IRuntimeProvider
 {
     private static readonly Uri OfficialIndexUri = new("https://www.python.org/ftp/python/index-windows.json");
+    private static readonly Uri OfficialDownloadDirectory = new("https://www.python.org/ftp/python/");
+    private const int MaxCatalogPages = 8;
     private static readonly Regex StableVersionPattern = new("^\\d+\\.\\d+\\.\\d+$", RegexOptions.CultureInvariant);
     private static readonly Regex StandardX64TagPattern = new("^\\d+\\.\\d+-64$", RegexOptions.CultureInvariant);
+    private readonly HttpClient _client;
     private readonly ProcessRunner _processRunner;
 
-    public PythonRuntimeProvider(ProcessRunner processRunner)
+    public PythonRuntimeProvider(HttpClient client, ProcessRunner processRunner)
     {
+        _client = client;
         _processRunner = processRunner;
     }
 
@@ -20,18 +24,30 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
 
     public async Task<IReadOnlyList<RuntimeRelease>> GetAvailableAsync(CancellationToken cancellationToken = default)
     {
-        var manager = FindManager();
-        var result = await _processRunner.RunAsync(
-            manager,
-            ["list", $"--source={OfficialIndexUri}", "--format=json"],
-            environment: SafeManagerEnvironment(),
-            cancellationToken: cancellationToken);
-        if (result.ExitCode != 0)
+        var releases = new List<RuntimeRelease>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Uri? pageUri = OfficialIndexUri;
+        for (var page = 0; page < MaxCatalogPages && pageUri is not null; page++)
         {
-            throw new SoftPilotException($"Python Install Manager 查询失败：{result.CombinedOutput}");
+            if (!visited.Add(pageUri.AbsoluteUri))
+            {
+                throw new IntegrityException($"Python 官方版本目录包含循环分页：{pageUri}");
+            }
+
+            var json = await ProviderUtilities.GetRequiredStringAsync(_client, pageUri, cancellationToken);
+            releases.AddRange(ParseReleases(json));
+            pageUri = ParseNextIndexUri(json, pageUri);
         }
 
-        return ParseReleases(result.StandardOutput);
+        if (pageUri is not null)
+        {
+            throw new IntegrityException($"Python 官方版本目录分页超过安全上限 {MaxCatalogPages}。");
+        }
+
+        return releases
+            .DistinctBy(release => release.Version)
+            .OrderByDescending(release => release.Version, RuntimeVersionComparer.Instance)
+            .ToArray();
     }
 
     internal static IReadOnlyList<RuntimeRelease> ParseReleases(string json)
@@ -44,7 +60,7 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
                 && root.TryGetProperty("versions", out var versionsElement)
                 && versionsElement.ValueKind == JsonValueKind.Array
                     ? versionsElement
-                    : throw new JsonException("Python Install Manager 返回的 JSON 中缺少 versions 数组。");
+                    : throw new JsonException("Python 官方版本目录中缺少 versions 数组。");
 
         var releases = new List<RuntimeRelease>();
         foreach (var item in versions.EnumerateArray())
@@ -65,18 +81,93 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
                 continue;
             }
 
+            var downloadUri = ParseOfficialDownloadUri(item, version);
+            var sha256 = ParseSha256(item, version);
             releases.Add(new RuntimeRelease(
                 RuntimeKind.Python,
                 version,
                 RuntimeArchitecture.X64,
-                OfficialIndexUri,
-                null));
+                downloadUri,
+                sha256,
+                ReleasePageUri: new Uri(
+                    $"https://www.python.org/downloads/release/python-{version.Replace(".", string.Empty, StringComparison.Ordinal)}/")));
         }
 
         return releases
             .DistinctBy(release => release.Version)
             .OrderByDescending(release => release.Version, RuntimeVersionComparer.Instance)
             .ToArray();
+    }
+
+    private static Uri ParseOfficialDownloadUri(JsonElement item, string version)
+    {
+        var value = ProviderUtilities.ReadFlexibleString(item, "url", "Url");
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.Equals(uri.Host, OfficialDownloadDirectory.Host, StringComparison.OrdinalIgnoreCase)
+            || uri.Port != OfficialDownloadDirectory.Port
+            || !uri.AbsolutePath.StartsWith(OfficialDownloadDirectory.AbsolutePath, StringComparison.Ordinal))
+        {
+            throw new IntegrityException($"Python {version} 的官方运行时下载地址无效。");
+        }
+
+        return uri;
+    }
+
+    private static string ParseSha256(JsonElement item, string version)
+    {
+        if (!item.TryGetProperty("hash", out var hash)
+            || hash.ValueKind != JsonValueKind.Object
+            || !hash.TryGetProperty("sha256", out var sha256Element)
+            || sha256Element.ValueKind != JsonValueKind.String)
+        {
+            throw new IntegrityException($"Python {version} 的官方版本目录缺少 SHA-256。");
+        }
+
+        var sha256 = sha256Element.GetString();
+        if (sha256 is null
+            || sha256.Length != 64
+            || sha256.Any(character => !Uri.IsHexDigit(character)))
+        {
+            throw new IntegrityException($"Python {version} 的官方 SHA-256 格式无效。");
+        }
+
+        return sha256;
+    }
+
+    internal static Uri? ParseNextIndexUri(string json, Uri currentPageUri)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("next", out var nextElement)
+            || nextElement.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (nextElement.ValueKind != JsonValueKind.String)
+        {
+            throw new JsonException("Python 官方版本目录的 next 字段格式无效。");
+        }
+
+        var next = nextElement.GetString();
+        if (string.IsNullOrWhiteSpace(next))
+        {
+            return null;
+        }
+
+        var nextUri = new Uri(currentPageUri, next);
+        var officialDirectory = new Uri(OfficialIndexUri, ".");
+        if (nextUri.Scheme != Uri.UriSchemeHttps
+            || !string.Equals(nextUri.Host, OfficialIndexUri.Host, StringComparison.OrdinalIgnoreCase)
+            || nextUri.Port != OfficialIndexUri.Port
+            || !nextUri.AbsolutePath.StartsWith(officialDirectory.AbsolutePath, StringComparison.Ordinal))
+        {
+            throw new IntegrityException($"拒绝读取非 python.org 官方目录的 Python 分页：{nextUri}");
+        }
+
+        return nextUri;
     }
 
     public async Task<RuntimeRelease> ResolveAsync(string exactVersion, CancellationToken cancellationToken = default)
@@ -93,7 +184,7 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        progress?.Report(new OperationProgress("install", null, "Python Install Manager 正在验证并提取官方运行时"));
+        progress?.Report(new OperationProgress("download", 15, "Python Install Manager 正在下载并验证官方运行时"));
         Directory.CreateDirectory(stagingDirectory);
         var result = await _processRunner.RunAsync(
             FindManager(),
@@ -104,6 +195,8 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
         {
             throw new SoftPilotException($"Python Install Manager 安装失败：{result.CombinedOutput}");
         }
+
+        progress?.Report(new OperationProgress("extract", 80, "Python 官方运行时已下载并提取"));
     }
 
     public async Task<RuntimeHealth> CheckHealthAsync(string runtimeDirectory, CancellationToken cancellationToken = default)

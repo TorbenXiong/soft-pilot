@@ -105,7 +105,8 @@ public sealed class NodeRuntimeProvider : IRuntimeProvider
                 null,
                 new Uri(directory, "SHASUMS256.txt"),
                 new Uri(directory, "SHASUMS256.txt.sig"),
-                isLts));
+                isLts,
+                directory));
         }
 
         return releases

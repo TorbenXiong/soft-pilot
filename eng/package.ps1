@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$')]
-    [string]$Version = '0.0.2',
+    [string]$Version = '0.0.3',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
     [string]$CertificateThumbprint,
@@ -52,8 +52,12 @@ $uninstall = Join-Path $work 'uninstall'
 $release = Join-Path $artifacts "release\$Version"
 
 if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
-if (Test-Path -LiteralPath $release) { Remove-Item -LiteralPath $release -Recurse -Force }
-New-Item -ItemType Directory -Path $payload, $gui, $cli, $shim, $uninstall, $release | Out-Null
+if (Test-Path -LiteralPath $release) {
+    Get-ChildItem -LiteralPath $release -Force | Remove-Item -Recurse -Force
+} else {
+    New-Item -ItemType Directory -Path $release | Out-Null
+}
+New-Item -ItemType Directory -Path $payload, $gui, $cli, $shim, $uninstall | Out-Null
 
 & $dotnet publish (Join-Path $repositoryRoot 'src\SoftPilot.Gui\SoftPilot.Gui.csproj') -c $Configuration -r win-x64 --self-contained true --no-restore -o $gui
 if ($LASTEXITCODE -ne 0) { throw 'SoftPilot.Gui publish failed.' }

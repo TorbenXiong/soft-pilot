@@ -2,7 +2,6 @@ namespace SoftPilot.Infrastructure.Runtime;
 
 public sealed class OperationCoordinator : IOperationCoordinator
 {
-    private static readonly TimeSpan RestoreWindow = TimeSpan.FromDays(7);
     private readonly IReadOnlyDictionary<RuntimeKind, IRuntimeProvider> _providers;
     private readonly IInstallationLayout _layout;
     private readonly IStateStore _stateStore;
@@ -30,6 +29,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
         CancellationToken cancellationToken = default) =>
         TrackAsync("install", target, cancellationToken, async operationToken =>
         {
+            progress?.Report(new OperationProgress("prepare", 0, "正在准备安装"));
             ValidateVersion(target.Version);
             if (await _stateStore.FindInstallationAsync(target.Kind, target.Version, includeDeleted: true, operationToken) is not null)
             {
@@ -41,6 +41,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 throw new SoftPilotException($"没有注册 {target.Kind} Provider。");
             }
 
+            progress?.Report(new OperationProgress("resolve", 5, "正在解析官方确定版本"));
             var release = await provider.ResolveAsync(target.Version, operationToken);
             var finalDirectory = _layout.GetRuntimeDirectory(target.Kind, release.Version);
             var stagingDirectory = Path.Combine(_layout.StagingDirectory, $"{target.Kind.ToString().ToLowerInvariant()}-{release.Version}-{Guid.NewGuid():N}");
@@ -51,9 +52,10 @@ public sealed class OperationCoordinator : IOperationCoordinator
 
             try
             {
+                progress?.Report(new OperationProgress("prepare", 10, "正在准备下载和暂存目录"));
                 Directory.CreateDirectory(stagingDirectory);
                 await provider.PrepareAsync(release, stagingDirectory, progress, operationToken);
-                progress?.Report(new OperationProgress("health", null, "执行版本和健康检查"));
+                progress?.Report(new OperationProgress("health", 85, "正在执行版本和健康检查"));
                 var health = await provider.CheckHealthAsync(stagingDirectory, operationToken);
                 if (!health.IsHealthy)
                 {
@@ -65,6 +67,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     throw new IntegrityException($"请求版本 {release.Version} 与实际版本 {health.DetectedVersion} 不一致。");
                 }
 
+                progress?.Report(new OperationProgress("commit", 92, "正在提交运行时目录"));
                 Directory.CreateDirectory(Path.GetDirectoryName(finalDirectory)!);
                 await MoveDirectoryWithRetryAsync(stagingDirectory, finalDirectory, operationToken);
                 var installation = new RuntimeInstallation(
@@ -76,6 +79,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     false);
                 try
                 {
+                    progress?.Report(new OperationProgress("state", 96, "正在保存安装状态"));
                     await _stateStore.UpsertInstallationAsync(installation, operationToken);
                 }
                 catch
@@ -88,6 +92,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 {
                     try
                     {
+                        progress?.Report(new OperationProgress("current", 98, "正在设为全局版本"));
                         await _globalRuntimeService.UseWithinWorkspaceLockAsync(target.Kind, release.Version, operationToken);
                     }
                     catch (GlobalRuntimeRollbackException)
@@ -112,6 +117,8 @@ public sealed class OperationCoordinator : IOperationCoordinator
                         throw;
                     }
                 }
+
+                progress?.Report(new OperationProgress("complete", 100, "安装完成"));
             }
             finally
             {
@@ -119,6 +126,8 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 {
                     await DeleteDirectoryWithRetryAsync(stagingDirectory, CancellationToken.None);
                 }
+
+                TryDeleteEmptyRuntimeKindDirectory(finalDirectory);
             }
         });
 
@@ -132,86 +141,35 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 throw new SoftPilotException("当前全局版本不能卸载；请先切换版本或取消当前选择。");
             }
 
-            var deletedAt = DateTimeOffset.UtcNow;
-            var trashPath = _layout.GetTrashDirectory(target.Kind, target.Version, deletedAt);
-            Directory.CreateDirectory(Path.GetDirectoryName(trashPath)!);
-            Directory.Move(installation.InstallPath, trashPath);
+            var removalDirectory = Path.Combine(
+                _layout.StagingDirectory,
+                $"uninstall-{target.Kind.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_layout.StagingDirectory);
+            Directory.Move(installation.InstallPath, removalDirectory);
             try
             {
-                await _stateStore.MarkDeletedAsync(target.Kind, target.Version, deletedAt, trashPath, operationToken);
+                await _stateStore.DeleteInstallationAsync(target.Kind, target.Version, operationToken);
+                await DeleteDirectoryWithRetryAsync(removalDirectory, CancellationToken.None);
             }
             catch
             {
-                Directory.Move(trashPath, installation.InstallPath);
-                throw;
-            }
-        });
-
-    public Task RestoreAsync(RuntimeTarget target, CancellationToken cancellationToken = default) =>
-        TrackAsync("restore", target, cancellationToken, async operationToken =>
-        {
-            var installation = await _stateStore.FindInstallationAsync(target.Kind, target.Version, includeDeleted: true, operationToken)
-                ?? throw new RuntimeNotFoundException(target.Kind, target.Version);
-            if (!installation.IsDeleted || installation.DeletedAt is null || installation.TrashPath is null)
-            {
-                throw new SoftPilotException($"{target} 不在回收站中。");
-            }
-
-            if (DateTimeOffset.UtcNow - installation.DeletedAt.Value > RestoreWindow)
-            {
-                throw new SoftPilotException($"{target} 已超过七日恢复期限。");
-            }
-
-            var destination = _layout.GetRuntimeDirectory(target.Kind, target.Version);
-            if (!Directory.Exists(installation.TrashPath))
-            {
-                throw new SoftPilotException("回收站中的运行时目录已不存在。");
-            }
-
-            if (Directory.Exists(destination))
-            {
-                throw new SoftPilotException($"恢复目标已存在：{destination}");
-            }
-
-            Directory.Move(installation.TrashPath, destination);
-            try
-            {
-                await _stateStore.RestoreAsync(target.Kind, target.Version, destination, operationToken);
-            }
-            catch
-            {
-                Directory.Move(destination, installation.TrashPath);
-                throw;
-            }
-        });
-
-    public async Task PurgeExpiredTrashAsync(TimeSpan retention, CancellationToken cancellationToken = default)
-    {
-        await using var workspaceLease = await _workspaceLock.AcquireAsync(cancellationToken);
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            var installations = await _stateStore.GetInstallationsAsync(includeDeleted: true, cancellationToken);
-            foreach (var installation in installations.Where(item =>
-                         item.IsDeleted && item.DeletedAt is not null && DateTimeOffset.UtcNow - item.DeletedAt.Value > retention))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (installation.TrashPath is not null && Directory.Exists(installation.TrashPath))
+                if (Directory.Exists(removalDirectory) && !Directory.Exists(installation.InstallPath))
                 {
-                    Directory.Delete(installation.TrashPath, recursive: true);
+                    Directory.Move(removalDirectory, installation.InstallPath);
                 }
 
-                await _stateStore.DeleteInstallationAsync(
-                    installation.Kind,
-                    installation.Version,
-                    CancellationToken.None);
+                if (await _stateStore.FindInstallationAsync(
+                        target.Kind,
+                        target.Version,
+                        includeDeleted: true,
+                        CancellationToken.None) is null)
+                {
+                    await _stateStore.UpsertInstallationAsync(installation, CancellationToken.None);
+                }
+
+                throw;
             }
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
+        });
 
     private async Task TrackAsync(
         string name,
@@ -299,6 +257,17 @@ public sealed class OperationCoordinator : IOperationCoordinator
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(150 * (1 << attempt)), cancellationToken);
             }
+        }
+    }
+
+    private static void TryDeleteEmptyRuntimeKindDirectory(string runtimeDirectory)
+    {
+        var kindDirectory = Path.GetDirectoryName(runtimeDirectory);
+        if (kindDirectory is not null
+            && Directory.Exists(kindDirectory)
+            && !Directory.EnumerateFileSystemEntries(kindDirectory).Any())
+        {
+            Directory.Delete(kindDirectory);
         }
     }
 

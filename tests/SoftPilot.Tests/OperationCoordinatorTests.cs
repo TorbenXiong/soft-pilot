@@ -22,19 +22,25 @@ public sealed class OperationCoordinatorTests
             AfterUpsertInstallation = _ => cancellation.Cancel(),
         };
         var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
+        var progress = new ProgressRecorder();
         var global = new GlobalRuntimeService(
             state,
             layout,
             new WindowsDirectoryLinkService(new ProcessRunner()),
-            [provider]);
+            [provider],
+            new TestShellIntegrationService());
         var coordinator = new OperationCoordinator([provider], layout, state, global);
 
         await coordinator.InstallAsync(
             new RuntimeTarget(RuntimeKind.Node, version),
             makeCurrent: false,
+            progress,
             cancellationToken: cancellation.Token);
 
         Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Node, version));
+        Assert.IsTrue(Directory.Exists(Path.Combine(layout.AppDirectory, "node")));
+        Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "java")));
+        Assert.AreEqual(100, progress.Values.Last().Percentage);
         Assert.AreEqual(OperationStatus.Succeeded, (await state.GetOperationsAsync()).Single().Status);
     }
 
@@ -62,7 +68,8 @@ public sealed class OperationCoordinatorTests
             state,
             layout,
             new WindowsDirectoryLinkService(new ProcessRunner()),
-            [provider]);
+            [provider],
+            new TestShellIntegrationService());
         var coordinator = new OperationCoordinator([provider], layout, state, global);
 
         await Assert.ThrowsAsync<SoftPilot.Application.SoftPilotException>(() =>
@@ -70,6 +77,7 @@ public sealed class OperationCoordinatorTests
 
         Assert.IsNull(await state.FindInstallationAsync(RuntimeKind.Node, version, includeDeleted: true));
         Assert.IsFalse(Directory.Exists(layout.GetRuntimeDirectory(RuntimeKind.Node, version)));
+        Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "node")));
         Assert.IsFalse(Directory.Exists(layout.GetCurrentLink(RuntimeKind.Node)));
         Assert.AreEqual(OperationStatus.Failed, (await state.GetOperationsAsync()).Single().Status);
     }
@@ -114,7 +122,12 @@ public sealed class OperationCoordinatorTests
 
                 return Task.FromResult(new RuntimeHealth(true, version));
             });
-        var global = new GlobalRuntimeService(state, layout, links, [provider]);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            links,
+            [provider],
+            new TestShellIntegrationService());
         var coordinator = new OperationCoordinator([provider], layout, state, global);
 
         try
@@ -134,88 +147,82 @@ public sealed class OperationCoordinatorTests
     }
 
     [TestMethod]
-    public async Task PurgeExpiredTrashAsync_WaitsForWorkspaceLock()
+    public async Task UninstallAsync_PermanentlyDeletesRuntimeAndState()
     {
         using var sandbox = new TemporaryDirectory();
         const string version = "1.2.3";
         var layout = new WindowsInstallationLayout(sandbox.Path);
         layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, version);
+        Directory.CreateDirectory(installDirectory);
+        await File.WriteAllTextAsync(Path.Combine(installDirectory, "runtime.txt"), version);
         var state = new InMemoryStateStore();
-        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
-        var deletedAt = DateTimeOffset.UtcNow.AddDays(-8);
-        var trashPath = layout.GetTrashDirectory(RuntimeKind.Node, version, deletedAt);
-        Directory.CreateDirectory(trashPath);
         await state.UpsertInstallationAsync(new RuntimeInstallation(
             RuntimeKind.Node,
             version,
             RuntimeArchitecture.X64,
-            layout.GetRuntimeDirectory(RuntimeKind.Node, version),
-            DateTimeOffset.UtcNow.AddDays(-10),
-            false,
-            deletedAt,
-            trashPath));
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
         var global = new GlobalRuntimeService(
             state,
             layout,
             new WindowsDirectoryLinkService(new ProcessRunner()),
-            [provider]);
+            [provider],
+            new TestShellIntegrationService());
         var coordinator = new OperationCoordinator([provider], layout, state, global);
-        var workspaceLock = new WorkspaceOperationLock(layout);
-        var lease = await workspaceLock.AcquireAsync(CancellationToken.None);
 
-        Task purge;
-        try
-        {
-            purge = coordinator.PurgeExpiredTrashAsync(TimeSpan.FromDays(7));
-            await Task.Delay(250);
-            Assert.IsFalse(purge.IsCompleted);
-            Assert.IsTrue(Directory.Exists(trashPath));
-        }
-        finally
-        {
-            await lease.DisposeAsync();
-        }
+        await coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Node, version));
 
-        await purge;
-        Assert.IsFalse(Directory.Exists(trashPath));
+        Assert.IsFalse(Directory.Exists(installDirectory));
         Assert.IsNull(await state.FindInstallationAsync(RuntimeKind.Node, version, includeDeleted: true));
+        Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
+        Assert.AreEqual(OperationStatus.Succeeded, (await state.GetOperationsAsync()).Single().Status);
     }
 
     [TestMethod]
-    public async Task PurgeExpiredTrashAsync_WhenCancelledAfterDirectoryDeletion_CompletesStateCleanup()
+    public async Task UninstallAsync_WhenStateDeletionFails_RestoresRuntimeDirectory()
     {
         using var sandbox = new TemporaryDirectory();
-        using var cancellation = new CancellationTokenSource();
         const string version = "1.2.3";
         var layout = new WindowsInstallationLayout(sandbox.Path);
         layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, version);
+        Directory.CreateDirectory(installDirectory);
+        await File.WriteAllTextAsync(Path.Combine(installDirectory, "runtime.txt"), version);
         var state = new InMemoryStateStore
         {
-            BeforeDeleteInstallation = (_, _) => cancellation.Cancel(),
+            BeforeDeleteInstallation = (_, _) => throw new InvalidOperationException("simulated state failure"),
         };
-        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
-        var deletedAt = DateTimeOffset.UtcNow.AddDays(-8);
-        var trashPath = layout.GetTrashDirectory(RuntimeKind.Node, version, deletedAt);
-        Directory.CreateDirectory(trashPath);
         await state.UpsertInstallationAsync(new RuntimeInstallation(
             RuntimeKind.Node,
             version,
             RuntimeArchitecture.X64,
-            layout.GetRuntimeDirectory(RuntimeKind.Node, version),
-            DateTimeOffset.UtcNow.AddDays(-10),
-            false,
-            deletedAt,
-            trashPath));
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
         var global = new GlobalRuntimeService(
             state,
             layout,
             new WindowsDirectoryLinkService(new ProcessRunner()),
-            [provider]);
+            [provider],
+            new TestShellIntegrationService());
         var coordinator = new OperationCoordinator([provider], layout, state, global);
 
-        await coordinator.PurgeExpiredTrashAsync(TimeSpan.FromDays(7), cancellation.Token);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Node, version)));
 
-        Assert.IsFalse(Directory.Exists(trashPath));
-        Assert.IsNull(await state.FindInstallationAsync(RuntimeKind.Node, version, includeDeleted: true));
+        Assert.IsTrue(Directory.Exists(installDirectory));
+        Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Node, version));
+        Assert.AreEqual(OperationStatus.Failed, (await state.GetOperationsAsync()).Single().Status);
+    }
+
+    private sealed class ProgressRecorder : IProgress<OperationProgress>
+    {
+        public List<OperationProgress> Values { get; } = [];
+
+        public void Report(OperationProgress value) => Values.Add(value);
     }
 }

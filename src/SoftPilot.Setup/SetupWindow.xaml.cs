@@ -1,6 +1,6 @@
-using System.Windows;
+using System.Diagnostics;
 using System.IO;
-using System.Windows.Media;
+using System.Windows;
 using Microsoft.Win32;
 using SoftPilot.Application.Abstractions;
 using SoftPilot.Infrastructure.Installation;
@@ -16,10 +16,7 @@ public partial class SetupWindow : Window
     public SetupWindow()
     {
         InitializeComponent();
-        var defaultParent = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Programs");
-        UpdateSelection(defaultParent);
+        UpdateSelection(_paths.GetDefaultParentDirectory());
     }
 
     private void OnChooseFolder(object sender, RoutedEventArgs e)
@@ -27,7 +24,7 @@ public partial class SetupWindow : Window
         var dialog = new OpenFolderDialog
         {
             Title = "选择 SoftPilot 的父目录",
-            InitialDirectory = ParentPathBox.Text,
+            InitialDirectory = _validation?.SelectedParent ?? string.Empty,
             Multiselect = false,
         };
         if (dialog.ShowDialog(this) == true)
@@ -43,18 +40,7 @@ public partial class SetupWindow : Window
             return;
         }
 
-        var answer = System.Windows.MessageBox.Show(
-            this,
-            $"SoftPilot 将安装到：\n\n{_validation.FinalRoot}\n\n覆盖升级只替换 bin；V1 不支持安装后迁移。",
-            "确认最终安装位置",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Information,
-            MessageBoxResult.Cancel);
-        if (answer != MessageBoxResult.OK)
-        {
-            return;
-        }
-
+        var launchAfterInstall = LaunchAfterInstallBox.IsChecked == true;
         SetInstalling(true);
         try
         {
@@ -64,12 +50,11 @@ public partial class SetupWindow : Window
                 InstallProgress.Value = value.Percentage;
             });
             await _installer.InstallAsync(_validation.FinalRoot, progress);
-            System.Windows.MessageBox.Show(
-                this,
-                $"SoftPilot 已安装到：\n{_validation.FinalRoot}",
-                "安装完成",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            if (launchAfterInstall)
+            {
+                LaunchInstalledApp(_validation.FinalRoot);
+            }
+
             Close();
         }
         catch (Exception exception)
@@ -90,8 +75,7 @@ public partial class SetupWindow : Window
     private void UpdateSelection(string parent)
     {
         _validation = _paths.Validate(parent);
-        ParentPathBox.Text = _validation.SelectedParent;
-        FinalPathText.Text = _validation.FinalRoot;
+        InstallPathBox.Text = _validation.FinalRoot;
         ValidationText.Text = _validation.IsValid
             ? "位置有效：本地固定 NTFS 磁盘，当前用户可写。"
             : string.Join(Environment.NewLine, _validation.Errors.Select(error => $"• {error}"));
@@ -104,10 +88,31 @@ public partial class SetupWindow : Window
     private void SetInstalling(bool installing)
     {
         InstallButton.IsEnabled = !installing && _validation is { IsValid: true };
+        ChooseFolderButton.IsEnabled = !installing;
+        LaunchAfterInstallBox.IsEnabled = !installing;
+        ProgressText.Visibility = installing ? Visibility.Visible : Visibility.Collapsed;
         InstallProgress.Visibility = installing ? Visibility.Visible : Visibility.Collapsed;
         if (!installing)
         {
             ProgressText.Text = string.Empty;
+        }
+    }
+
+    private void LaunchInstalledApp(string root)
+    {
+        var executable = Path.Combine(root, "bin", "SoftPilot.exe");
+        try
+        {
+            Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                $"SoftPilot 已安装，但未能自动启动：{exception.Message}\n\n请从 Windows 开始菜单搜索“SoftPilot”。",
+                "无法启动 SoftPilot",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
     }
 }

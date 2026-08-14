@@ -9,11 +9,29 @@ internal static class RuntimeVersionMatcher
             return false;
         }
 
-        static string Normalize(string value) => value.Trim().TrimStart('v').Replace('+', '_');
-        var normalizedExpected = Normalize(expected);
-        var normalizedActual = Normalize(actual);
-        return string.Equals(normalizedExpected, normalizedActual, StringComparison.OrdinalIgnoreCase)
-            || normalizedExpected.StartsWith(normalizedActual, StringComparison.OrdinalIgnoreCase)
-            || normalizedActual.StartsWith(normalizedExpected, StringComparison.OrdinalIgnoreCase);
+        static string Normalize(string value)
+        {
+            var normalized = value.Trim().Trim('"').TrimStart('v');
+            if (normalized.StartsWith("1.8.0_", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = $"8.0.{ReadLeadingDigits(normalized[6..])}";
+            }
+
+            var buildSeparator = normalized.IndexOfAny(['+', '-']);
+            return buildSeparator < 0 ? normalized : normalized[..buildSeparator];
+        }
+
+        static string ReadLeadingDigits(string value)
+        {
+            var length = 0;
+            while (length < value.Length && char.IsDigit(value[length]))
+            {
+                length++;
+            }
+
+            return value[..length];
+        }
+
+        return string.Equals(Normalize(expected), Normalize(actual), StringComparison.OrdinalIgnoreCase);
     }
 }

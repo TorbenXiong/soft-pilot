@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using SoftPilot.Application;
+using SoftPilot.Application.Abstractions;
 using SoftPilot.Infrastructure.IO;
 
 namespace SoftPilot.Tests;
@@ -17,15 +18,18 @@ public sealed class HttpDownloadServiceTests
         var service = new HttpDownloadService(client);
         var destination = Path.Combine(sandbox.Path, "runtime.zip");
         var expectedHash = Convert.ToHexString(SHA256.HashData(content));
+        var progress = new ProgressRecorder();
 
         var result = await service.DownloadAsync(
             new Uri("https://example.test/runtime.zip"),
             destination,
-            expectedHash);
+            expectedHash,
+            progress);
 
         Assert.IsTrue(File.Exists(destination));
         CollectionAssert.AreEqual(content, await File.ReadAllBytesAsync(destination));
         Assert.AreEqual(content.Length, result.Length);
+        Assert.AreEqual(100, progress.Values.Last().Percentage);
         Assert.IsEmpty(Directory.EnumerateFiles(sandbox.Path, "*.partial"));
     }
 
@@ -105,5 +109,12 @@ public sealed class HttpDownloadServiceTests
                 Content = new ByteArrayContent("runtime"u8.ToArray()),
                 RequestMessage = new HttpRequestMessage(HttpMethod.Get, finalAddress),
             });
+    }
+
+    private sealed class ProgressRecorder : IProgress<OperationProgress>
+    {
+        public List<OperationProgress> Values { get; } = [];
+
+        public void Report(OperationProgress value) => Values.Add(value);
     }
 }

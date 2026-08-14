@@ -2,6 +2,7 @@ namespace SoftPilot.Application.Abstractions;
 
 public interface IInstallationPathService
 {
+    string GetDefaultParentDirectory();
     string ResolveRoot(string selectedParentDirectory);
     InstallationPathValidation Validate(string selectedParentDirectory);
 }
