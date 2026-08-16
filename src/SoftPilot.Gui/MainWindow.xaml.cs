@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
         ViewModel.NotificationRequested += OnNotificationRequested;
         ViewModel.ModulePreferencesChanged += OnModulePreferencesChanged;
         AppWindow.Resize(new SizeInt32(1280, 800));
+        WindowPositioning.CenterOnPrimaryDisplay(AppWindow);
         RootNavigation.SelectedItem = NodeNavigationItem;
         SetRuntimeSection(showInstalled: true);
         _ = InitializeAsync();
@@ -141,7 +142,7 @@ public sealed partial class MainWindow : Window
             var folder = await StorageFolder.GetFolderFromPathAsync(directory);
             if (!await Launcher.LaunchFolderAsync(folder))
             {
-                throw new InvalidOperationException("Windows 未能打开该目录。");
+                throw new InvalidOperationException("Windows could not open the folder.");
             }
         }
         catch (Exception exception)

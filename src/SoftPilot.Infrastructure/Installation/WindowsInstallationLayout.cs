@@ -2,21 +2,25 @@ namespace SoftPilot.Infrastructure.Installation;
 
 public sealed class WindowsInstallationLayout : IInstallationLayout
 {
+    public const string ManagementDirectoryName = "SoftPilotData";
+    public const string WorkspaceMarkerName = ".softpilot-root";
+
     public WindowsInstallationLayout(string root)
     {
         Root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
     }
 
     public string Root { get; }
-    public string BinDirectory => Path.Combine(Root, "bin");
-    public string ShimsDirectory => Path.Combine(BinDirectory, "shims");
-    public string AppDirectory => Path.Combine(Root, "app");
-    public string CurrentDirectory => Path.Combine(Root, "current");
-    public string DataDirectory => Path.Combine(Root, "data");
-    public string DownloadsDirectory => Path.Combine(Root, "cache", "downloads");
-    public string StagingDirectory => Path.Combine(Root, "staging");
-    public string TrashDirectory => Path.Combine(Root, "trash");
-    public string LogsDirectory => Path.Combine(Root, "logs");
+    public string ManagementDirectory => Path.Combine(Root, ManagementDirectoryName);
+    public string ToolsDirectory => Path.Combine(ManagementDirectory, "tools");
+    public string ShimsDirectory => Path.Combine(ToolsDirectory, "shims");
+    public string AppDirectory => Path.Combine(ManagementDirectory, "app");
+    public string CurrentDirectory => Path.Combine(ManagementDirectory, "current");
+    public string DataDirectory => Path.Combine(ManagementDirectory, "data");
+    public string DownloadsDirectory => Path.Combine(ManagementDirectory, "cache", "downloads");
+    public string StagingDirectory => Path.Combine(ManagementDirectory, "staging");
+    public string TrashDirectory => Path.Combine(ManagementDirectory, "trash");
+    public string LogsDirectory => Path.Combine(ManagementDirectory, "logs");
 
     public string GetRuntimeDirectory(RuntimeKind kind, string version) =>
         Path.Combine(AppDirectory, GetKindName(kind), version);
@@ -30,8 +34,7 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
     public void EnsureWorkspace()
     {
         Directory.CreateDirectory(Root);
-        Directory.CreateDirectory(BinDirectory);
-        Directory.CreateDirectory(ShimsDirectory);
+        Directory.CreateDirectory(ManagementDirectory);
         Directory.CreateDirectory(AppDirectory);
         Directory.CreateDirectory(CurrentDirectory);
         Directory.CreateDirectory(DataDirectory);
@@ -40,7 +43,7 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
         Directory.CreateDirectory(TrashDirectory);
         Directory.CreateDirectory(LogsDirectory);
 
-        var marker = Path.Combine(Root, ".softpilot-root");
+        var marker = Path.Combine(ManagementDirectory, WorkspaceMarkerName);
         if (!File.Exists(marker))
         {
             File.WriteAllText(marker, "SoftPilot workspace\n");

@@ -263,34 +263,34 @@
         <NavigationView.MenuItems>
             <NavigationViewItem x:Name="NodeNavigationItem" Content="Node.js" Tag="runtime:node"
                                 Visibility="{x:Bind ViewModel.NodeModuleVisibility, Mode=OneWay}"
-                                AutomationProperties.Name="Node.js 模块">
+                                AutomationProperties.Name="Node.js module">
                 <NavigationViewItem.Icon>
                     <ImageIcon Source="Assets/RuntimeIcons/nodejs.svg" Width="20" Height="20" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem x:Name="JavaNavigationItem" Content="Java" Tag="runtime:java"
                                 Visibility="{x:Bind ViewModel.JavaModuleVisibility, Mode=OneWay}"
-                                AutomationProperties.Name="Java 模块">
+                                AutomationProperties.Name="Java module">
                 <NavigationViewItem.Icon>
                     <ImageIcon Source="Assets/RuntimeIcons/java.svg" Width="20" Height="20" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItem x:Name="PythonNavigationItem" Content="Python" Tag="runtime:python"
                                 Visibility="{x:Bind ViewModel.PythonModuleVisibility, Mode=OneWay}"
-                                AutomationProperties.Name="Python 模块">
+                                AutomationProperties.Name="Python module">
                 <NavigationViewItem.Icon>
                     <ImageIcon Source="Assets/RuntimeIcons/python.svg" Width="20" Height="20" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItemSeparator x:Name="RuntimeNavigationSeparator" />
             <NavigationViewItem x:Name="TasksNavigationItem" Content="{x:Bind ViewModel.TaskHistoryText, Mode=OneWay}" Tag="tasks"
-                                AutomationProperties.Name="任务历史">
+                                AutomationProperties.Name="Task history">
                 <NavigationViewItem.Icon><FontIcon Glyph="&#xE9D2;" /></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.MenuItems>
         <NavigationView.FooterMenuItems>
             <NavigationViewItem x:Name="SettingsNavigationItem" Content="{x:Bind ViewModel.SettingsText, Mode=OneWay}" Tag="settings"
-                                AutomationProperties.Name="设置">
+                                AutomationProperties.Name="Settings">
                 <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" /></NavigationViewItem.Icon>
             </NavigationViewItem>
         </NavigationView.FooterMenuItems>
@@ -310,7 +310,7 @@
                            VerticalAlignment="Center" />
                 <Button Grid.Column="1" Command="{x:Bind ViewModel.RefreshCommand}"
                         Style="{StaticResource IconButtonStyle}"
-                        AutomationProperties.Name="刷新当前状态"
+                        AutomationProperties.Name="Refresh current status"
                         ToolTipService.ToolTip="{x:Bind ViewModel.RefreshText, Mode=OneWay}">
                     <Grid>
                         <FontIcon Glyph="&#xE72C;" FontSize="18"
@@ -353,7 +353,7 @@
                                             <ListView ItemsSource="{x:Bind ViewModel.InstalledRuntimes}"
                                                       SelectionMode="None" HorizontalContentAlignment="Stretch"
                                                       ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}"
-                                                      AutomationProperties.Name="当前运行时的已安装版本列表">
+                                                      AutomationProperties.Name="Installed versions for the current runtime">
                                                 <ListView.Header>
                                                     <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
                                                             CornerRadius="8" Height="48">
@@ -405,35 +405,45 @@
                                                                         Canvas.ZIndex="1"
                                                                         Click="OnOpenInstalledPathClick"
                                                                         ToolTipService.ToolTip="{Binding Path}"
-                                                                        AutomationProperties.Name="打开安装目录" />
+                                                                        AutomationProperties.Name="Open installation directory" />
                                                                     <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
                                                                             Width="36" Height="36"
                                                                             Click="OnCopyInstalledPathClick"
                                                                             ToolTipService.ToolTip="{Binding CopyPathToolTip}"
-                                                                            AutomationProperties.Name="复制安装路径">
+                                                                            AutomationProperties.Name="Copy installation path">
                                                                         <FontIcon Glyph="&#xE8C8;" FontSize="14" />
                                                                     </Button>
                                                                     <TextBlock Grid.Column="2" Text="{Binding PathStatusText}"
                                                                                Visibility="{Binding PathStatusVisibility}"
                                                                                Foreground="#16803A" VerticalAlignment="Center" />
                                                                 </Grid>
-                                                                <Grid Grid.Column="2" HorizontalAlignment="Center">
-                                                                    <Button Style="{StaticResource EnvironmentCheckAvailableStyle}"
-                                                                            Visibility="{Binding SetEnvironmentVisibility}"
-                                                                            Click="OnInstalledEnvironmentClick"
-                                                                            AutomationProperties.Name="{Binding EnvironmentActionName}" />
-                                                                    <Button Style="{StaticResource EnvironmentCheckActiveStyle}"
-                                                                            Visibility="{Binding ClearEnvironmentVisibility}"
-                                                                            Click="OnInstalledEnvironmentClick"
-                                                                            AutomationProperties.Name="{Binding EnvironmentActionName}" />
-                                                                </Grid>
+                                                                <StackPanel Grid.Column="2" HorizontalAlignment="Center"
+                                                                            VerticalAlignment="Center" Spacing="4">
+                                                                    <Grid HorizontalAlignment="Center">
+                                                                        <Button Style="{StaticResource EnvironmentCheckAvailableStyle}"
+                                                                                Visibility="{Binding SetEnvironmentVisibility}"
+                                                                                Click="OnInstalledEnvironmentClick"
+                                                                                ToolTipService.ToolTip="{Binding EnvironmentActionToolTip}"
+                                                                                AutomationProperties.Name="{Binding EnvironmentActionName}" />
+                                                                        <Button Style="{StaticResource EnvironmentCheckActiveStyle}"
+                                                                                Visibility="{Binding ClearEnvironmentVisibility}"
+                                                                                Click="OnInstalledEnvironmentClick"
+                                                                                ToolTipService.ToolTip="{Binding EnvironmentActionToolTip}"
+                                                                                AutomationProperties.Name="{Binding EnvironmentActionName}" />
+                                                                    </Grid>
+                                                                    <TextBlock Text="{Binding OperationStatusText}"
+                                                                               Visibility="{Binding EnvironmentFeedbackVisibility}"
+                                                                               Foreground="{Binding OperationStatusBrush}"
+                                                                               FontSize="13" TextWrapping="Wrap"
+                                                                               TextAlignment="Center" HorizontalAlignment="Center" />
+                                                                </StackPanel>
                                                                 <StackPanel Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                                     <controls:StableHyperlinkButton Content="{Binding UninstallText}"
                                                                                                     Style="{StaticResource RuntimeOperationButtonStyle}"
                                                                                                     Visibility="{Binding UninstallVisibility}"
                                                                                                     Click="OnUninstallInstalledClick" />
                                                                     <TextBlock Text="{Binding OperationStatusText}"
-                                                                               Visibility="{Binding FeedbackVisibility}"
+                                                                               Visibility="{Binding OperationFeedbackVisibility}"
                                                                                Foreground="{Binding OperationStatusBrush}"
                                                                                FontSize="13" TextWrapping="Wrap"
                                                                                HorizontalAlignment="Center" />
@@ -459,7 +469,7 @@
                                             <ListView ItemsSource="{x:Bind ViewModel.VersionRows}"
                                                       SelectionMode="None" HorizontalContentAlignment="Stretch"
                                                       ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}"
-                                                      AutomationProperties.Name="当前运行时的版本管理列表">
+                                                      AutomationProperties.Name="Version management list for the current runtime">
                                                 <ListView.Header>
                                                     <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
                                                             CornerRadius="8" Height="48">
@@ -503,7 +513,7 @@
                                                                         <ProgressBar Width="116" Height="4" Minimum="0" Maximum="100"
                                                                                      Value="{Binding OperationPercentage}"
                                                                                      Visibility="{Binding ProgressVisibility}"
-                                                                                     AutomationProperties.Name="安装进度" />
+                                                                                     AutomationProperties.Name="Installation progress" />
                                                                         <TextBlock Text="{Binding OperationStatusText}"
                                                                                    Visibility="{Binding FeedbackVisibility}"
                                                                                    Foreground="{Binding OperationStatusBrush}"
@@ -517,7 +527,7 @@
                                                                         Tag="{Binding ReleasePageUrl}"
                                                                         Click="OnOpenRuntimeUrlClick"
                                                                         ToolTipService.ToolTip="{Binding ReleasePageUrl}"
-                                                                        AutomationProperties.Name="打开版本线下载页面" />
+                                                                        AutomationProperties.Name="Open release-line download page" />
                                                                 </Grid>
                                                                 <Grid Grid.Column="1">
                                                                     <TextBlock Text="{Binding Version}"
@@ -530,12 +540,12 @@
                                                                         Tag="{Binding DownloadUrl}"
                                                                         Click="OnOpenRuntimeUrlClick"
                                                                         ToolTipService.ToolTip="{Binding DownloadUrl}"
-                                                                        AutomationProperties.Name="打开版本网页" />
+                                                                        AutomationProperties.Name="Open version page" />
                                                                 </Grid>
                                                                 <FontIcon Grid.Column="2" Glyph="&#xE73E;" FontSize="18"
                                                                           Foreground="#0F9D58" HorizontalAlignment="Center"
                                                                           Visibility="{Binding InstalledVisibility}"
-                                                                          AutomationProperties.Name="已安装" />
+                                                                          AutomationProperties.Name="Installed" />
                                                                 <Grid Grid.Column="3" HorizontalAlignment="Center">
                                                                     <controls:StableHyperlinkButton Content="{Binding InstallText}" Click="OnInstallVersionClick"
                                                                                                     Style="{StaticResource RuntimeOperationButtonStyle}"
@@ -567,7 +577,7 @@
                         <ListView ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" MinHeight="240"
                                   HorizontalContentAlignment="Stretch"
                                   ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}"
-                                  AutomationProperties.Name="任务历史">
+                                  AutomationProperties.Name="Task history">
                                 <ListView.Header>
                                     <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
                                             CornerRadius="8" Height="48">
@@ -629,7 +639,7 @@
                                           ReorderMode="Enabled"
                                           ItemContainerStyle="{StaticResource ModuleCardItemStyle}"
                                           HorizontalAlignment="Left"
-                                          AutomationProperties.Name="运行时模块排序">
+                                          AutomationProperties.Name="Runtime module order">
                                     <GridView.ItemTemplate>
                                         <DataTemplate>
                                             <Border Width="168" Height="148" Padding="16"

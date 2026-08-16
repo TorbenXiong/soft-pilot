@@ -168,23 +168,32 @@ public sealed class NodeRuntimeProvider : IRuntimeProvider
             return new RuntimeHealth(false, null, "Node.js 运行时缺少 npm 或 npx。");
         }
 
-        var result = await _processRunner.RunAsync(executable, ["--version"], cancellationToken: cancellationToken);
-        var version = ProviderUtilities.NormalizeVersion(result.StandardOutput.Trim());
-        if (result.ExitCode != 0 || version.Length == 0)
+        using var healthTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        healthTimeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
         {
-            return new RuntimeHealth(false, null, result.CombinedOutput);
-        }
+            var result = await _processRunner.RunAsync(executable, ["--version"], cancellationToken: healthTimeout.Token);
+            var version = ProviderUtilities.NormalizeVersion(result.StandardOutput.Trim());
+            if (result.ExitCode != 0 || version.Length == 0)
+            {
+                return new RuntimeHealth(false, null, result.CombinedOutput);
+            }
 
-        var npm = await _processRunner.RunAsync(executable, [npmCli, "--version"], cancellationToken: cancellationToken);
-        if (npm.ExitCode != 0 || npm.StandardOutput.Trim().Length == 0)
+            var npm = await _processRunner.RunAsync(executable, [npmCli, "--version"], cancellationToken: healthTimeout.Token);
+            if (npm.ExitCode != 0 || npm.StandardOutput.Trim().Length == 0)
+            {
+                return new RuntimeHealth(false, null, $"npm 健康检查失败：{npm.CombinedOutput}");
+            }
+
+            var npx = await _processRunner.RunAsync(executable, [npxCli, "--version"], cancellationToken: healthTimeout.Token);
+            return npx.ExitCode == 0 && npx.StandardOutput.Trim().Length > 0
+                ? new RuntimeHealth(true, version)
+                : new RuntimeHealth(false, null, $"npx 健康检查失败：{npx.CombinedOutput}");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new RuntimeHealth(false, null, $"npm 健康检查失败：{npm.CombinedOutput}");
+            return new RuntimeHealth(false, null, "Node.js、npm 或 npx 健康检查超时（30 秒）。");
         }
-
-        var npx = await _processRunner.RunAsync(executable, [npxCli, "--version"], cancellationToken: cancellationToken);
-        return npx.ExitCode == 0 && npx.StandardOutput.Trim().Length > 0
-            ? new RuntimeHealth(true, version)
-            : new RuntimeHealth(false, null, $"npx 健康检查失败：{npx.CombinedOutput}");
     }
 
     private async Task<string> LoadTrustedKeysAsync(CancellationToken cancellationToken)

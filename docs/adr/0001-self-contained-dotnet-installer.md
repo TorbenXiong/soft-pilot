@@ -1,22 +1,13 @@
-# ADR 0001：使用自研 .NET 安装器
+# ADR 0001: Custom .NET installer
 
-状态：已采用
+**English** | [简体中文](0001-self-contained-dotnet-installer.zh-CN.md)
 
-## 决策
+Status: Superseded by [ADR 0002](0002-portable-self-migration.md)
 
-V1 使用自包含、单文件、x64 WPF 安装器和卸载器，不依赖 WiX、NSIS、Inno Setup、MSIX 或 Velopack。
+## Decision
 
-## 原因
+V1 originally used self-contained WPF installer and uninstaller applications instead of a third-party installer framework.
 
-- 与产品的 .NET 代码和安装路径校验逻辑直接复用。
-- 精确实现“选择父目录并大小写敏感追加 `SoftPilot`”的交互。
-- 精确控制覆盖升级只替换 `bin`、默认卸载保留工作区的非典型语义。
-- 不增加安装框架许可、脚本语言或工具链依赖。
+## Rationale and consequence
 
-## 代价
-
-- 需要自行维护事务回滚、Apps & Features 注册、快捷方式、卸载自删除、签名和升级兼容性。
-- 不自动获得 MSI 的企业部署、修复、组件引用计数和 Group Policy 能力。
-- 安装器包含自包含运行时及 WinUI 应用负载，包体大于传统 bootstrapper。
-
-若未来企业分发成为核心需求，应重新评估 MSI/WiX；若自动更新成为高优先级，应重新评估 Velopack 或独立更新服务。
+This reused .NET path-validation code and supported custom upgrade semantics without another toolchain. It also required maintaining registration, shortcuts, rollback, signing, and self-removal. Portable distribution later removed that maintenance burden.

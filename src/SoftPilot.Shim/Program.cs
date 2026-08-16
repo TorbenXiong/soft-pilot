@@ -42,18 +42,22 @@ if (process is null)
 await process.WaitForExitAsync();
 return process.ExitCode;
 
-static ShimInvocation Resolve(string name, string root) => name switch
+static ShimInvocation Resolve(string name, string root)
 {
-    "node" => new(Path.Combine(root, "current", "node", "node.exe"), []),
-    "npm" => new(Path.Combine(root, "current", "node", "node.exe"),
-        [Path.Combine(root, "current", "node", "node_modules", "npm", "bin", "npm-cli.js")]),
-    "npx" => new(Path.Combine(root, "current", "node", "node.exe"),
-        [Path.Combine(root, "current", "node", "node_modules", "npm", "bin", "npx-cli.js")]),
-    "java" => new(Path.Combine(root, "current", "java", "bin", "java.exe"), []),
-    "javac" => new(Path.Combine(root, "current", "java", "bin", "javac.exe"), []),
-    "python" or "python3" => new(Path.Combine(root, "current", "python", "python.exe"), []),
-    "pip" => new(Path.Combine(root, "current", "python", "python.exe"), ["-m", "pip"]),
-    _ => throw new InvalidOperationException($"未知 SoftPilot shim 名称：{name}"),
-};
+    var current = Path.Combine(root, "SoftPilotData", "current");
+    return name switch
+    {
+        "node" => new(Path.Combine(current, "node", "node.exe"), []),
+        "npm" => new(Path.Combine(current, "node", "node.exe"),
+            [Path.Combine(current, "node", "node_modules", "npm", "bin", "npm-cli.js")]),
+        "npx" => new(Path.Combine(current, "node", "node.exe"),
+            [Path.Combine(current, "node", "node_modules", "npm", "bin", "npx-cli.js")]),
+        "java" => new(Path.Combine(current, "java", "bin", "java.exe"), []),
+        "javac" => new(Path.Combine(current, "java", "bin", "javac.exe"), []),
+        "python" or "python3" => new(Path.Combine(current, "python", "python.exe"), []),
+        "pip" => new(Path.Combine(current, "python", "python.exe"), ["-m", "pip"]),
+        _ => throw new InvalidOperationException($"未知 SoftPilot shim 名称：{name}"),
+    };
+}
 
 internal sealed record ShimInvocation(string FileName, IReadOnlyList<string> PrefixArguments);

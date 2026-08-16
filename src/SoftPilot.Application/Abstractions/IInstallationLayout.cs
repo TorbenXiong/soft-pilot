@@ -3,7 +3,8 @@ namespace SoftPilot.Application.Abstractions;
 public interface IInstallationLayout
 {
     string Root { get; }
-    string BinDirectory { get; }
+    string ManagementDirectory { get; }
+    string ToolsDirectory { get; }
     string ShimsDirectory { get; }
     string AppDirectory { get; }
     string CurrentDirectory { get; }

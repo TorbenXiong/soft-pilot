@@ -1,3 +1,4 @@
+using SoftPilot.Infrastructure.Installation;
 using SoftPilot.Infrastructure.IO;
 using SoftPilot.Infrastructure.Runtime;
 
@@ -36,19 +37,36 @@ public sealed class DoctorService : IDoctorService
 
         var registeredRoot = _rootRegistry.ReadRoot();
         checks.Add(new DoctorCheck(
-            "Root registry",
+            "Application root registry",
             registeredRoot is not null && string.Equals(registeredRoot, _layout.Root, StringComparison.OrdinalIgnoreCase),
             registeredRoot ?? "HKCU 未记录 SoftPilot Root"));
+
+        var workspaceMarker = Path.Combine(
+            _layout.ManagementDirectory,
+            WindowsInstallationLayout.WorkspaceMarkerName);
+        checks.Add(new DoctorCheck(
+            "Portable application",
+            File.Exists(Path.Combine(_layout.Root, "SoftPilot.exe")),
+            _layout.Root));
+        checks.Add(new DoctorCheck(
+            "Management directory",
+            Directory.Exists(_layout.ManagementDirectory) && File.Exists(workspaceMarker),
+            _layout.ManagementDirectory));
+        checks.Add(new DoctorCheck(
+            "Portable tools",
+            File.Exists(Path.Combine(_layout.ToolsDirectory, "spt.exe"))
+                && File.Exists(Path.Combine(_layout.ShimsDirectory, "SoftPilot.Shim.exe")),
+            _layout.ToolsDirectory));
 
         try
         {
             var drive = new DriveInfo(Path.GetPathRoot(_layout.Root)!);
             var passed = drive.DriveType == DriveType.Fixed && string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
-            checks.Add(new DoctorCheck("Workspace volume", passed, $"{drive.DriveType}, {drive.DriveFormat}"));
+            checks.Add(new DoctorCheck("Application volume", passed, $"{drive.DriveType}, {drive.DriveFormat}"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
-            checks.Add(new DoctorCheck("Workspace volume", false, exception.Message));
+            checks.Add(new DoctorCheck("Application volume", false, exception.Message));
         }
 
         try

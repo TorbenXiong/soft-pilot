@@ -4,11 +4,6 @@ namespace SoftPilot.Infrastructure.Installation;
 
 public sealed class WindowsInstallationPathService : IInstallationPathService
 {
-    private static readonly string[] ManagedDirectoryNames =
-    [
-        ".softpilot-root", "bin", "app", "current", "data", "cache", "staging", "trash", "logs",
-    ];
-
     public string GetDefaultParentDirectory()
     {
         var fallbackParent = Path.Combine(
@@ -182,57 +177,44 @@ public sealed class WindowsInstallationPathService : IInstallationPathService
             return;
         }
 
-        var names = entries.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        using var rootKey = Registry.CurrentUser.OpenSubKey(WindowsRootRegistry.KeyPath);
-        var registeredRoot = rootKey?.GetValue(WindowsRootRegistry.ValueName) as string;
-        var isRegisteredWorkspace = IsRegisteredWorkspace(registeredRoot, target);
-        var hasWorkspaceMarker = HasWorkspaceMarker(target);
-        var isManagedWorkspace = names.All(IsManagedEntry)
-            && (isRegisteredWorkspace || hasWorkspaceMarker);
-        if (!isManagedWorkspace)
+        var isPortableRoot = entries.All(entry =>
+        {
+            var name = Path.GetFileName(entry);
+            if (string.Equals(name, "SoftPilot.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return File.Exists(entry);
+            }
+
+            if (string.Equals(name, WindowsInstallationLayout.ManagementDirectoryName, StringComparison.Ordinal))
+            {
+                return HasWorkspaceMarker(entry);
+            }
+
+            return name.StartsWith(".SoftPilot.previous-", StringComparison.OrdinalIgnoreCase)
+                && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+        });
+        if (!isPortableRoot)
         {
             errors.Add("最终目录非空且不属于 SoftPilot，可能已被其他应用占用。");
         }
     }
 
-    private static bool IsRegisteredWorkspace(string? registeredRoot, string target)
-    {
-        if (string.IsNullOrWhiteSpace(registeredRoot))
-        {
-            return false;
-        }
-
-        try
-        {
-            return string.Equals(
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(registeredRoot)),
-                target,
-                StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return false;
-        }
-    }
-
-    private static bool HasWorkspaceMarker(string target)
+    private static bool HasWorkspaceMarker(string managementDirectory)
     {
         try
         {
-            var marker = Path.Combine(target, ".softpilot-root");
+            var marker = Path.Combine(managementDirectory, WindowsInstallationLayout.WorkspaceMarkerName);
             return File.Exists(marker)
-                && string.Equals(File.ReadAllText(marker).Trim(), "SoftPilot workspace", StringComparison.Ordinal);
+                && string.Equals(
+                    File.ReadAllText(marker).Trim(),
+                    "SoftPilot workspace",
+                    StringComparison.Ordinal);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return false;
         }
     }
-
-    private static bool IsManagedEntry(string? name) => name is not null
-        && (ManagedDirectoryNames.Contains(name, StringComparer.OrdinalIgnoreCase)
-            || name.StartsWith(".bin.incoming-", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith(".bin.previous-", StringComparison.OrdinalIgnoreCase));
 
     private static void ValidateWritable(string target, ICollection<string> errors)
     {

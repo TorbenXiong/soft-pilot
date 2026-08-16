@@ -28,8 +28,13 @@
     <Content Include="Assets\RuntimeIcons\*.*"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="$(PortableToolsArchive)"
+                      LogicalName="SoftPilot.Gui.PortableTools.zip"
+                      Condition="'$(PortableToolsArchive)' != ''" />
   </ItemGroup>
-  <Target Name="CopyWinUiGeneratedResourcesToPublish" AfterTargets="Publish">
+  <Target Name="CopyWinUiGeneratedResourcesToPublish"
+          AfterTargets="Publish"
+          Condition="'$(PublishSingleFile)' != 'true'">
     <ItemGroup>
       <_WinUiGeneratedResource Include="$(TargetDir)*.xbf" />
       <_WinUiGeneratedResource Include="$(TargetDir)$(AssemblyName).pri" />
@@ -39,5 +44,11 @@
     <Copy SourceFiles="@(_WinUiGeneratedResource)"
           DestinationFolder="$(PublishDir)"
           SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="InvalidateWinUiSingleFileManifest"
+          AfterTargets="GetNewAppManifestValues"
+          BeforeTargets="CreateWinRTRegistration"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <Delete Files="$(ApplicationManifest)" />
   </Target>
 </Project>

@@ -45,8 +45,8 @@ public partial class MainViewModel : ObservableObject
         SaveModulePreferencesCommand = new AsyncRelayCommand(SaveModulePreferencesAsync, CanRun);
         LanguageOptions =
         [
-            new LanguageOption("zh-CN", "简体中文"),
             new LanguageOption("en-US", "English"),
+            new LanguageOption("zh-CN", "简体中文"),
         ];
         SelectedLanguage = LanguageOptions[0];
         ReplaceModuleSettings(RuntimeModulePreferences.Default);
@@ -79,7 +79,7 @@ public partial class MainViewModel : ObservableObject
     public partial RuntimeVersionOption? SelectedRecommendedVersion { get; set; }
 
     [ObservableProperty]
-    public partial string RecommendedVersionHint { get; set; } = "正在读取官方版本目录…";
+    public partial string RecommendedVersionHint { get; set; } = "Loading the official version catalog…";
 
     public bool NodeModuleEnabled => IsModuleEnabled(RuntimeKind.Node);
     public bool JavaModuleEnabled => IsModuleEnabled(RuntimeKind.Java);
@@ -133,7 +133,7 @@ public partial class MainViewModel : ObservableObject
     public string CatalogLoadingText => T("正在加载版本…", "Loading versions…");
     public string VersionHeaderText => T("版本", "Version");
     public string PathHeaderText => T("路径", "Path");
-    public string EnvironmentHeaderText => T("当前版本", "Current version");
+    public string EnvironmentHeaderText => T("终端默认版本", "Terminal default");
     public string ReleaseLineHeaderText => T("版本线", "Release line");
     public string IsInstalledHeaderText => T("是否安装", "Installed");
     public string OperationHeaderText => T("操作", "Action");
@@ -155,10 +155,16 @@ public partial class MainViewModel : ObservableObject
 
     public string RuntimeInstallDescription => SelectedRuntimeKind switch
     {
-        RuntimeKind.Node => "从官方目录推荐最近两个 LTS 主版本线的最新稳定补丁。",
-        RuntimeKind.Java => "从 Eclipse Temurin 官方目录推荐各个 LTS 版本线的最新稳定 JDK。",
-        RuntimeKind.Python => "Python 没有 LTS；这里推荐仍在近期支持范围内的稳定分支最新补丁。",
-        _ => "从官方目录选择推荐版本。",
+        RuntimeKind.Node => T(
+            "从官方目录推荐最近两个 LTS 主版本线的最新稳定补丁。",
+            "Recommends the latest stable patch from each of the two most recent LTS lines in the official catalog."),
+        RuntimeKind.Java => T(
+            "从 Eclipse Temurin 官方目录推荐各个 LTS 版本线的最新稳定 JDK。",
+            "Recommends the latest stable JDK from each LTS line in the official Eclipse Temurin catalog."),
+        RuntimeKind.Python => T(
+            "Python 没有 LTS；这里推荐仍在近期支持范围内的稳定分支最新补丁。",
+            "Python has no LTS releases; this lists the latest patch from each recently supported stable branch."),
+        _ => T("从官方目录选择推荐版本。", "Select a recommended version from the official catalog."),
     };
 
     public bool IsModuleEnabled(RuntimeKind kind) =>
@@ -197,25 +203,11 @@ public partial class MainViewModel : ObservableObject
             {
                 var preferencesWarning = await LoadModulePreferencesAsync();
                 await RefreshRuntimeDataAsync(includeExternal: false);
-                var externalTask = RefreshExternalRuntimeDataAsync();
-                var catalogTask = RefreshRecommendedVersionsAsync(forceRefresh: true);
-                string? externalWarning = null;
-                try
-                {
-                    await externalTask;
-                }
-                catch (Exception exception)
-                {
-                    externalWarning = T(
-                        $"外部运行时扫描失败：{exception.Message}",
-                        $"External runtime scan failed: {exception.Message}");
-                }
-
-                var catalogWarnings = await catalogTask;
+                var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: true);
                 await RefreshTasksAsync();
-                var warnings = new[] { preferencesWarning, externalWarning }
-                    .Concat(catalogWarnings)
-                    .Where(message => !string.IsNullOrWhiteSpace(message))
+                var warnings = remoteWarnings
+                    .Prepend(preferencesWarning)
+                    .OfType<string>()
                     .ToArray();
                 if (warnings.Length > 0)
                 {
@@ -231,7 +223,20 @@ public partial class MainViewModel : ObservableObject
 
     private async Task RefreshStartupDataAsync(string? preferencesWarning)
     {
-        var catalogTask = RefreshRecommendedVersionsAsync(forceRefresh: false);
+        var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: false);
+        var warnings = remoteWarnings
+            .Prepend(preferencesWarning)
+            .OfType<string>()
+            .ToArray();
+        if (warnings.Length > 0 && _recommendedReleases.Count == 0)
+        {
+            NotifyUser(T("加载未完全成功", "Loading incomplete"), string.Join(" ", warnings), isError: true);
+        }
+    }
+
+    private async Task<IReadOnlyList<string>> RefreshRemoteDataAsync(bool forceCatalogRefresh)
+    {
+        var catalogTask = RefreshRecommendedVersionsAsync(forceCatalogRefresh);
         string? externalWarning = null;
         try
         {
@@ -245,14 +250,10 @@ public partial class MainViewModel : ObservableObject
         }
 
         var catalogWarnings = await catalogTask;
-        var warnings = new[] { preferencesWarning, externalWarning }
-            .Concat(catalogWarnings)
-            .Where(message => !string.IsNullOrWhiteSpace(message))
+        return catalogWarnings
+            .Prepend(externalWarning)
+            .OfType<string>()
             .ToArray();
-        if (warnings.Length > 0 && _recommendedReleases.Count == 0)
-        {
-            NotifyUser(T("加载未完全成功", "Loading incomplete"), string.Join(" ", warnings), isError: true);
-        }
     }
 
     private async Task<string?> LoadModulePreferencesAsync()
@@ -392,26 +393,29 @@ public partial class MainViewModel : ObservableObject
     private async Task UseRuntimeAsync(RuntimeKind kind, string version)
     {
         var target = new RuntimeTarget(kind, version);
-        SetRuntimeFeedback(target, new RuntimeOperationFeedback(
-            0,
-            T("正在设置当前版本…", "Setting current version…"),
-            RuntimeFeedbackKind.Running,
-            true));
         await RunBusyAsync(async () =>
         {
-            await _global.UseAsync(kind, version);
             SetRuntimeFeedback(target, new RuntimeOperationFeedback(
+                0,
+                T("正在设置终端默认版本…", "Setting terminal default…"),
+                RuntimeFeedbackKind.Running,
+                true,
+                RuntimeFeedbackPlacement.Environment));
+            await _global.UseAsync(kind, version);
+            SetTransientRuntimeFeedback(target, new RuntimeOperationFeedback(
                 100,
-                T("已设为当前版本", "Current version set"),
+                T("已设为终端默认版本", "Terminal default set"),
                 RuntimeFeedbackKind.Success,
-                false));
+                false,
+                RuntimeFeedbackPlacement.Environment));
             await RefreshCoreAsync();
         }, showSuccessOrFailureDialog: false,
         onError: exception => SetRuntimeFeedback(target, new RuntimeOperationFeedback(
             0,
             T($"设置失败：{exception.Message}", $"Update failed: {exception.Message}"),
             RuntimeFeedbackKind.Error,
-            false)));
+            false,
+            RuntimeFeedbackPlacement.Environment)));
     }
 
     public Task ClearGlobalVersionAsync(RuntimeVersionRow row) =>
@@ -429,11 +433,12 @@ public partial class MainViewModel : ObservableObject
             await _global.ClearAsync(kind);
             if (target is not null)
             {
-                SetRuntimeFeedback(target.Value, new RuntimeOperationFeedback(
+                SetTransientRuntimeFeedback(target.Value, new RuntimeOperationFeedback(
                     100,
-                    T("已取消当前版本", "Current version cleared"),
+                    T("已取消终端默认版本", "Terminal default cleared"),
                     RuntimeFeedbackKind.Success,
-                    false));
+                    false,
+                    RuntimeFeedbackPlacement.Environment));
             }
             await RefreshCoreAsync();
         }, showSuccessOrFailureDialog: false,
@@ -445,7 +450,8 @@ public partial class MainViewModel : ObservableObject
                     0,
                     T($"取消失败：{exception.Message}", $"Unable to clear: {exception.Message}"),
                     RuntimeFeedbackKind.Error,
-                    false));
+                    false,
+                    RuntimeFeedbackPlacement.Environment));
             }
         });
     }
@@ -555,7 +561,9 @@ public partial class MainViewModel : ObservableObject
                 return new RuntimeCatalogResult(
                     provider.Kind,
                     null,
-                    $"{GetRuntimeDisplayName(provider.Kind)} 官方版本目录加载失败：{exception.Message}");
+                    T(
+                        $"{GetRuntimeDisplayName(provider.Kind)} 官方版本目录加载失败：{exception.Message}",
+                        $"Unable to load the official {GetRuntimeDisplayName(provider.Kind)} version catalog: {exception.Message}"));
             }
         });
 
@@ -617,13 +625,21 @@ public partial class MainViewModel : ObservableObject
                                          string.Equals(option.Version, selectedVersion, StringComparison.OrdinalIgnoreCase))
                                      ?? options.FirstOrDefault();
         RecommendedVersionHint = options.Length == 0
-            ? "未加载到推荐版本。请检查网络和官方目录后点击右上角“刷新”。"
+            ? T(
+                "未加载到推荐版本。请检查网络和官方目录后点击右上角“刷新”。",
+                "No recommended versions were loaded. Check the network and official catalog, then select Refresh in the upper-right corner.")
             : SelectedRuntimeKind switch
             {
-                RuntimeKind.Node => "仅显示最近两个 Node.js LTS 主版本线，每条版本线自动选择最新稳定补丁。",
-                RuntimeKind.Java => "仅显示 Eclipse Temurin LTS 版本线，每条版本线自动选择最新稳定 JDK。",
-                RuntimeKind.Python => "Python 没有 LTS；仅显示最新五个稳定分支，每条分支自动选择最新补丁。",
-                _ => "已从官方目录筛选推荐版本。",
+                RuntimeKind.Node => T(
+                    "仅显示最近两个 Node.js LTS 主版本线，每条版本线自动选择最新稳定补丁。",
+                    "Shows the two most recent Node.js LTS lines and selects the latest stable patch from each."),
+                RuntimeKind.Java => T(
+                    "仅显示 Eclipse Temurin LTS 版本线，每条版本线自动选择最新稳定 JDK。",
+                    "Shows Eclipse Temurin LTS lines and selects the latest stable JDK from each."),
+                RuntimeKind.Python => T(
+                    "Python 没有 LTS；仅显示最新五个稳定分支，每条分支自动选择最新补丁。",
+                    "Python has no LTS releases; this shows the five newest stable branches and selects the latest patch from each."),
+                _ => T("已从官方目录筛选推荐版本。", "Recommended versions were selected from the official catalog."),
             };
         ApplyVersionRows();
     }
@@ -674,12 +690,12 @@ public partial class MainViewModel : ObservableObject
         {
             RuntimeKind.Node => $"Node.js {line} LTS",
             RuntimeKind.Java => $"Temurin JDK {line} LTS",
-            RuntimeKind.Python => $"Python {line} 稳定版",
+            RuntimeKind.Python => T($"Python {line} 稳定版", $"Python {line} stable"),
             _ => GetRuntimeDisplayName(SelectedRuntimeKind),
         };
         var state = managed switch
         {
-            { IsCurrent: true } => T("当前全局", "Current global"),
+            { IsCurrent: true } => T("终端默认", "Terminal default"),
             not null => T("已安装", "Installed"),
             _ => T("未安装", "Not installed"),
         };
@@ -710,8 +726,9 @@ public partial class MainViewModel : ObservableObject
             isManaged,
             item.IsCurrent,
             item.IsCurrent
-                ? T("取消当前版本", "Clear current version")
-                : T("设为当前版本", "Set current version"),
+                ? T("取消终端默认版本", "Clear terminal default")
+                : T("设为终端默认版本", "Set as terminal default"),
+            GetEnvironmentActionToolTip(item.RuntimeKind, item.IsCurrent),
             T("卸载", "Uninstall"),
             T("复制路径", "Copy path"),
             feedback);
@@ -727,7 +744,7 @@ public partial class MainViewModel : ObservableObject
         {
             RuntimeKind.Node => $"Node.js {line} LTS — {release.Version}",
             RuntimeKind.Java => $"JDK {line} LTS — {release.Version}",
-            RuntimeKind.Python => $"Python {line} 稳定版 — {release.Version}",
+            RuntimeKind.Python => T($"Python {line} 稳定版 — {release.Version}", $"Python {line} stable — {release.Version}"),
             _ => release.Version,
         };
         if (managed is not null)
@@ -843,6 +860,32 @@ public partial class MainViewModel : ObservableObject
         _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
     };
 
+    private string GetEnvironmentActionToolTip(RuntimeKind kind, bool isCurrent)
+    {
+        if (isCurrent)
+        {
+            return T(
+                "取消此运行时的当前版本选择，并移除终端环境中的 SoftPilot 运行时入口；不会卸载该版本。",
+                "Clear the current-version selection for this runtime and remove its SoftPilot terminal entry. The version will not be uninstalled.");
+        }
+
+        return kind switch
+        {
+            RuntimeKind.Node => T(
+                "将 current\\node 指向此版本，并更新用户终端环境，使新打开的终端使用此版本的 node、npm 和 npx；不会重新安装或删除版本。",
+                "Point current\\node to this version and update the user terminal environment so newly opened terminals use its node, npm, and npx. No version is reinstalled or removed."),
+            RuntimeKind.Java => T(
+                "将 current\\java 指向此版本，并更新 JAVA_HOME，使新打开的终端使用此 JDK；不会重新安装或删除版本。",
+                "Point current\\java to this version and update JAVA_HOME so newly opened terminals use this JDK. No version is reinstalled or removed."),
+            RuntimeKind.Python => T(
+                "将 current\\python 指向此版本，使 SoftPilot 的 Python 命令入口使用它；不会设置 PYTHONHOME，也不会重新安装或删除版本。",
+                "Point current\\python to this version so SoftPilot's Python command entry uses it. PYTHONHOME is not set, and no version is reinstalled or removed."),
+            _ => T(
+                "将此版本设为 SoftPilot 当前使用的版本；不会重新安装或删除版本。",
+                "Set this as the version currently used by SoftPilot. No version is reinstalled or removed."),
+        };
+    }
+
     private string T(string chinese, string english) => IsEnglish ? english : chinese;
 
     private void NotifyUser(string title, string message, bool isError) =>
@@ -885,6 +928,7 @@ public partial class MainViewModel : ObservableObject
             {
                 "prepare" => "Preparing…",
                 "resolve" => "Resolving version…",
+                "manager" => "Preparing Python Install Manager…",
                 "download" => "Downloading…",
                 "extract" => "Extracting…",
                 "health" => "Checking runtime…",
@@ -941,11 +985,28 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private void SetTransientRuntimeFeedback(RuntimeTarget target, RuntimeOperationFeedback feedback)
+    {
+        SetRuntimeFeedback(target, feedback);
+        _ = ClearRuntimeFeedbackAfterDelayAsync(target, feedback);
+    }
+
+    private async Task ClearRuntimeFeedbackAfterDelayAsync(
+        RuntimeTarget target,
+        RuntimeOperationFeedback expectedFeedback)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        if (Equals(GetRuntimeFeedback(target), expectedFeedback))
+        {
+            ClearRuntimeFeedback(target);
+        }
+    }
+
     private RuntimeModulePreferences CreateModulePreferences(string? language = null) => new(
         IsModuleEnabled(RuntimeKind.Node),
         IsModuleEnabled(RuntimeKind.Java),
         IsModuleEnabled(RuntimeKind.Python),
-        language ?? SelectedLanguage?.Code ?? "zh-CN",
+        language ?? SelectedLanguage?.Code ?? "en-US",
         GetOrderedModuleKinds());
 
     private void ReplaceModuleSettings(RuntimeModulePreferences preferences)
@@ -1107,6 +1168,7 @@ public sealed class InstalledRuntimeRow : ObservableObject
         bool isManaged,
         bool isCurrent,
         string environmentActionName,
+        string environmentActionToolTip,
         string uninstallText,
         string copyPathToolTip,
         RuntimeOperationFeedback? feedback)
@@ -1117,6 +1179,7 @@ public sealed class InstalledRuntimeRow : ObservableObject
         IsManaged = isManaged;
         IsCurrent = isCurrent;
         EnvironmentActionName = environmentActionName;
+        EnvironmentActionToolTip = environmentActionToolTip;
         UninstallText = uninstallText;
         CopyPathToolTip = copyPathToolTip;
         _feedback = feedback;
@@ -1128,6 +1191,7 @@ public sealed class InstalledRuntimeRow : ObservableObject
     public bool IsManaged { get; }
     public bool IsCurrent { get; }
     public string EnvironmentActionName { get; }
+    public string EnvironmentActionToolTip { get; }
     public string UninstallText { get; }
     public string CopyPathToolTip { get; }
     public bool CanToggleEnvironment => IsManaged;
@@ -1137,7 +1201,12 @@ public sealed class InstalledRuntimeRow : ObservableObject
     public Visibility UninstallVisibility => CanUninstall ? Visibility.Visible : Visibility.Collapsed;
     public string OperationStatusText => _feedback?.Message ?? string.Empty;
     public Brush OperationStatusBrush => RuntimeFeedbackBrushes.Get(_feedback?.Kind);
-    public Visibility FeedbackVisibility => string.IsNullOrWhiteSpace(_feedback?.Message)
+    public Visibility EnvironmentFeedbackVisibility => string.IsNullOrWhiteSpace(_feedback?.Message)
+        || _feedback?.Placement != RuntimeFeedbackPlacement.Environment
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public Visibility OperationFeedbackVisibility => string.IsNullOrWhiteSpace(_feedback?.Message)
+        || _feedback?.Placement == RuntimeFeedbackPlacement.Environment
         ? Visibility.Collapsed
         : Visibility.Visible;
     public string PathStatusText => _pathStatusText;
@@ -1150,7 +1219,8 @@ public sealed class InstalledRuntimeRow : ObservableObject
         _feedback = feedback;
         OnPropertyChanged(nameof(OperationStatusText));
         OnPropertyChanged(nameof(OperationStatusBrush));
-        OnPropertyChanged(nameof(FeedbackVisibility));
+        OnPropertyChanged(nameof(EnvironmentFeedbackVisibility));
+        OnPropertyChanged(nameof(OperationFeedbackVisibility));
     }
 
     public void SetPathStatus(string text)
@@ -1165,7 +1235,14 @@ public sealed record RuntimeOperationFeedback(
     double Percentage,
     string Message,
     RuntimeFeedbackKind Kind,
-    bool IsActive);
+    bool IsActive,
+    RuntimeFeedbackPlacement Placement = RuntimeFeedbackPlacement.Operation);
+
+public enum RuntimeFeedbackPlacement
+{
+    Operation,
+    Environment,
+}
 
 public enum RuntimeFeedbackKind
 {

@@ -20,7 +20,7 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
         Assert.IsTrue(preferences.NodeEnabled);
         Assert.IsTrue(preferences.JavaEnabled);
         Assert.IsTrue(preferences.PythonEnabled);
-        Assert.AreEqual("zh-CN", preferences.Language);
+        Assert.AreEqual("en-US", preferences.Language);
         CollectionAssert.AreEqual(
             new[] { RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Python },
             preferences.GetModuleOrder().ToArray());
