@@ -42,7 +42,29 @@ public sealed class ProcessRunner
 
         var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process exited between HasExited and Kill.
+                }
+
+                await process.WaitForExitAsync(CancellationToken.None);
+            }
+
+            throw;
+        }
+
         return new ProcessResult(process.ExitCode, await outputTask, await errorTask);
     }
 }

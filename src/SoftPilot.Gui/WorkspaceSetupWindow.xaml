@@ -1,0 +1,76 @@
+<Window
+    x:Class="SoftPilot.Gui.WorkspaceSetupWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="RootGrid" Padding="40" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="8">
+                <TextBlock x:Name="WelcomeText" Text="Welcome to SoftPilot"
+                           FontSize="30" FontWeight="SemiBold" />
+                <TextBlock x:Name="FirstUseText"
+                           Text="Choose a workspace once. SoftPilot will move to its final location and restart."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="UpgradeText"
+                           Text="To upgrade, exit SoftPilot and replace the existing SoftPilot.exe with the new version."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+            <ComboBox x:Name="LanguageBox" Grid.Column="1" MinWidth="128"
+                      VerticalAlignment="Top" SelectionChanged="OnLanguageChanged">
+                <ComboBoxItem Content="English" Tag="en-US" />
+                <ComboBoxItem Content="简体中文" Tag="zh-CN" />
+            </ComboBox>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Margin="0,32,0,24" Spacing="10">
+            <TextBlock x:Name="LocationText" Text="App and workspace location" FontWeight="SemiBold" />
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="RootPathBox"
+                         IsReadOnly="True"
+                         MinHeight="42"
+                         VerticalContentAlignment="Center"
+                         FontFamily="Cascadia Mono,Consolas"
+                         AutomationProperties.Name="SoftPilot final app directory" />
+                <Button x:Name="ChooseFolderButton"
+                        Grid.Column="1"
+                        MinWidth="120"
+                        MinHeight="42"
+                        Content="Choose folder"
+                        Click="OnChooseFolder" />
+            </Grid>
+            <CheckBox x:Name="CreateDesktopShortcutCheckBox"
+                      Content="Create a desktop shortcut"
+                      IsChecked="True" />
+            <TextBlock x:Name="ValidationText" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Grid Grid.Row="2">
+            <Button x:Name="CancelButton" HorizontalAlignment="Left"
+                    MinWidth="96"
+                    MinHeight="40"
+                    Content="Exit"
+                    Click="OnCancel" />
+            <Button x:Name="ContinueButton"
+                    HorizontalAlignment="Right"
+                    MinWidth="132"
+                    MinHeight="40"
+                    Content="Use this location"
+                    Click="OnContinue" />
+        </Grid>
+    </Grid>
+</Window>

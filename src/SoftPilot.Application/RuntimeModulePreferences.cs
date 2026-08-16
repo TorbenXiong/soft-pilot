@@ -4,7 +4,7 @@ public sealed record RuntimeModulePreferences(
     bool NodeEnabled,
     bool JavaEnabled,
     bool PythonEnabled,
-    string Language = "zh-CN",
+    string Language = "en-US",
     IReadOnlyList<RuntimeKind>? ModuleOrder = null)
 {
     private static readonly RuntimeKind[] DefaultOrder =
@@ -18,7 +18,7 @@ public sealed record RuntimeModulePreferences(
         true,
         true,
         true,
-        "zh-CN",
+        "en-US",
         DefaultOrder);
 
     public bool IsEnabled(RuntimeKind kind) => kind switch

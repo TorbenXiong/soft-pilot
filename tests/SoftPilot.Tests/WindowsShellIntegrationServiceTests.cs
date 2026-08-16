@@ -9,15 +9,15 @@ public sealed class WindowsShellIntegrationServiceTests
     public void BuildEnabledPath_PutsShimsAndCurrentNodeFirstWithoutDuplicates()
     {
         var result = WindowsShellIntegrationService.BuildEnabledPath(
-            @"C:\Tools;D:\SoftPilot\current\node;D:\SoftPilot\bin\shims;C:\Windows",
-            @"D:\SoftPilot\bin\shims",
-            @"D:\SoftPilot\current\node");
+            @"C:\Tools;D:\SoftPilot\SoftPilotData\current\node;D:\SoftPilot\SoftPilotData\tools\shims;C:\Windows",
+            @"D:\SoftPilot\SoftPilotData\tools\shims",
+            @"D:\SoftPilot\SoftPilotData\current\node");
 
         CollectionAssert.AreEqual(
             new[]
             {
-                @"D:\SoftPilot\bin\shims",
-                @"D:\SoftPilot\current\node",
+                @"D:\SoftPilot\SoftPilotData\tools\shims",
+                @"D:\SoftPilot\SoftPilotData\current\node",
                 @"C:\Tools",
                 @"C:\Windows",
             },
@@ -28,9 +28,9 @@ public sealed class WindowsShellIntegrationServiceTests
     public void BuildDisabledPath_RemovesAllManagedEntries()
     {
         var result = WindowsShellIntegrationService.BuildDisabledPath(
-            @"D:\SoftPilot\bin\shims;C:\Tools;D:\SoftPilot\current\node;D:\SOFTPILOT\BIN\SHIMS",
-            @"D:\SoftPilot\bin\shims",
-            @"D:\SoftPilot\current\node");
+            @"D:\SoftPilot\SoftPilotData\tools\shims;C:\Tools;D:\SoftPilot\SoftPilotData\current\node;D:\SOFTPILOT\SOFTPILOTDATA\TOOLS\SHIMS",
+            @"D:\SoftPilot\SoftPilotData\tools\shims",
+            @"D:\SoftPilot\SoftPilotData\current\node");
 
         Assert.AreEqual(@"C:\Tools", result);
     }

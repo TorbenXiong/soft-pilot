@@ -33,13 +33,14 @@ public sealed class WindowsInstallationPathServiceTests
     }
 
     [TestMethod]
-    public void Validate_AcceptsMarkedWorkspaceWithoutRegistryEntry()
+    public void Validate_AcceptsPortableApplicationWithoutRegistryEntry()
     {
         using var sandbox = new TemporaryDirectory();
         var parent = Path.Combine(sandbox.Path, "parent");
         var root = Path.Combine(parent, "SoftPilot");
-        Directory.CreateDirectory(Path.Combine(root, "bin"));
-        File.WriteAllText(Path.Combine(root, ".softpilot-root"), "SoftPilot workspace\n");
+        Directory.CreateDirectory(Path.Combine(root, "SoftPilotData"));
+        File.WriteAllText(Path.Combine(root, "SoftPilot.exe"), "test");
+        File.WriteAllText(Path.Combine(root, "SoftPilotData", ".softpilot-root"), "SoftPilot workspace\n");
 
         var result = new WindowsInstallationPathService().Validate(parent);
 
@@ -53,8 +54,9 @@ public sealed class WindowsInstallationPathServiceTests
         using var sandbox = new TemporaryDirectory();
         var parent = Path.Combine(sandbox.Path, "parent");
         var root = Path.Combine(parent, "SoftPilot");
-        Directory.CreateDirectory(Path.Combine(root, "bin"));
-        File.WriteAllText(Path.Combine(root, ".softpilot-root"), "not-softpilot");
+        Directory.CreateDirectory(Path.Combine(root, "SoftPilotData"));
+        File.WriteAllText(Path.Combine(root, "SoftPilot.exe"), "test");
+        File.WriteAllText(Path.Combine(root, "SoftPilotData", ".softpilot-root"), "not-softpilot");
 
         var result = new WindowsInstallationPathService().Validate(parent);
 

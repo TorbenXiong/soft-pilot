@@ -13,7 +13,11 @@ public sealed class WindowsInstallationLayoutTests
 
         layout.EnsureWorkspace();
 
+        Assert.AreEqual(Path.Combine(sandbox.Path, "SoftPilotData"), layout.ManagementDirectory);
+        Assert.AreEqual(Path.Combine(layout.ManagementDirectory, "tools"), layout.ToolsDirectory);
+        Assert.AreEqual(Path.Combine(layout.ToolsDirectory, "shims"), layout.ShimsDirectory);
         Assert.IsTrue(Directory.Exists(layout.AppDirectory));
+        Assert.IsTrue(File.Exists(Path.Combine(layout.ManagementDirectory, ".softpilot-root")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "node")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "java")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "python")));

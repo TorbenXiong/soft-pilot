@@ -18,8 +18,10 @@ public static class DependencyInjection
         var registry = new WindowsRootRegistry();
         root ??= Environment.GetEnvironmentVariable("SOFTPILOT_ROOT");
         root ??= registry.ReadRoot();
-        root ??= InstallationRootResolver.Resolve(
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"));
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            throw new SoftPilotException("尚未指定 SoftPilot 工作区。请先启动 SoftPilot.exe 完成首次设置。");
+        }
 
         services.AddSingleton<IRootRegistry>(registry);
         services.AddSingleton<IInstallationLayout>(new WindowsInstallationLayout(root));
@@ -44,6 +46,7 @@ public static class DependencyInjection
         services.AddSingleton<IDoctorService, DoctorService>();
 
         services.AddSingleton<RuntimeCatalogCache>();
+        services.AddSingleton<PythonInstallManagerProvisioner>();
         services.AddSingleton<NodeRuntimeProvider>();
         services.AddSingleton<TemurinRuntimeProvider>();
         services.AddSingleton<PythonRuntimeProvider>();

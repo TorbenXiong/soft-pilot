@@ -129,6 +129,46 @@ public sealed class RuntimeProviderParsingTests
     }
 
     [TestMethod]
+    public async Task PythonCatalog_LegacyNuGetPackagesDoNotDiscardCurrentReleases()
+    {
+        var pages = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["/ftp/python/index-windows.json"] = """
+                {
+                  "versions": [
+                    { "company": "PythonCore", "tag": "3.14-64", "sort-version": "3.14.7", "url": "https://www.python.org/ftp/python/3.14.7/python-3.14.7-amd64.zip", "hash": { "sha256": "7479223746cdfb79d25865110d6f524ac98de081324e119af1dc3ae36bddc7a5" } }
+                  ],
+                  "next": "index-windows-recent.json"
+                }
+                """,
+            ["/ftp/python/index-windows-recent.json"] = """
+                {
+                  "versions": [
+                    { "company": "PythonCore", "tag": "3.13-64", "sort-version": "3.13.15", "url": "https://www.python.org/ftp/python/3.13.15/python-3.13.15-amd64.zip", "hash": { "sha256": "6479223746cdfb79d25865110d6f524ac98de081324e119af1dc3ae36bddc7a5" } }
+                  ],
+                  "next": "index-windows-legacy.json"
+                }
+                """,
+            ["/ftp/python/index-windows-legacy.json"] = """
+                {
+                  "versions": [
+                    { "company": "PythonCore", "tag": "3.10-64", "sort-version": "3.10.11", "url": "https://api.nuget.org/v3-flatcontainer/python/3.10.11/python.3.10.11.nupkg" }
+                  ],
+                  "next": null
+                }
+                """,
+        };
+        using var client = new HttpClient(new PagedJsonHandler(pages));
+        var provider = new PythonRuntimeProvider(client, new ProcessRunner());
+
+        var releases = await provider.GetAvailableAsync();
+
+        CollectionAssert.AreEqual(
+            new[] { "3.14.7", "3.13.15" },
+            releases.Select(item => item.Version).ToArray());
+    }
+
+    [TestMethod]
     public void PythonCatalog_RejectsPaginationOutsideOfficialDirectory()
     {
         const string json = """
@@ -158,6 +198,23 @@ public sealed class RuntimeProviderParsingTests
         Assert.ThrowsExactly<IntegrityException>(() => PythonRuntimeProvider.ParseReleases(json));
     }
 
+    [TestMethod]
+    public void PythonManagerLegacyJson_SkipsUnsupportedPackagesAndKeepsVerifiableReleases()
+    {
+        const string json = """
+            {
+              "versions": [
+                { "company": "PythonCore", "tag": "3.10-64", "sort-version": "3.10.11", "url": "https://api.nuget.org/v3-flatcontainer/python/3.10.11/python.3.10.11.nupkg" },
+                { "company": "PythonCore", "tag": "3.11-64", "sort-version": "3.11.9", "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.zip", "hash": { "sha256": "8479223746cdfb79d25865110d6f524ac98de081324e119af1dc3ae36bddc7a5" } }
+              ]
+            }
+            """;
+
+        var releases = PythonRuntimeProvider.ParseReleases(json, skipUnsupportedPackages: true);
+
+        CollectionAssert.AreEqual(new[] { "3.11.9" }, releases.Select(item => item.Version).ToArray());
+    }
+
     private sealed class StaticJsonHandler(string json) : HttpMessageHandler
     {
         public Uri? RequestUri { get; private set; }
@@ -171,6 +228,21 @@ public sealed class RuntimeProviderParsingTests
             {
                 RequestMessage = request,
                 Content = new StringContent(json),
+            });
+        }
+    }
+
+    private sealed class PagedJsonHandler(IReadOnlyDictionary<string, string> pages) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.AbsolutePath ?? string.Empty;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent(pages[path]),
             });
         }
     }

@@ -13,11 +13,24 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
     private static readonly Regex StandardX64TagPattern = new("^\\d+\\.\\d+-64$", RegexOptions.CultureInvariant);
     private readonly HttpClient _client;
     private readonly ProcessRunner _processRunner;
+    private readonly PythonInstallManagerProvisioner? _managerProvisioner;
+    private readonly IInstallationLayout? _layout;
 
     public PythonRuntimeProvider(HttpClient client, ProcessRunner processRunner)
     {
         _client = client;
         _processRunner = processRunner;
+    }
+
+    public PythonRuntimeProvider(
+        HttpClient client,
+        ProcessRunner processRunner,
+        PythonInstallManagerProvisioner managerProvisioner,
+        IInstallationLayout layout)
+        : this(client, processRunner)
+    {
+        _managerProvisioner = managerProvisioner;
+        _layout = layout;
     }
 
     public RuntimeKind Kind => RuntimeKind.Python;
@@ -35,7 +48,9 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
             }
 
             var json = await ProviderUtilities.GetRequiredStringAsync(_client, pageUri, cancellationToken);
-            releases.AddRange(ParseReleases(json));
+            releases.AddRange(ParseReleases(
+                json,
+                skipUnsupportedPackages: IsLegacyIndexPage(pageUri)));
             pageUri = ParseNextIndexUri(json, pageUri);
         }
 
@@ -44,13 +59,18 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
             throw new IntegrityException($"Python 官方版本目录分页超过安全上限 {MaxCatalogPages}。");
         }
 
-        return releases
+        var result = releases
             .DistinctBy(release => release.Version)
             .OrderByDescending(release => release.Version, RuntimeVersionComparer.Instance)
             .ToArray();
+        return result.Length > 0
+            ? result
+            : throw new IntegrityException("Python 官方版本目录中没有可验证的 Windows x64 稳定版本。");
     }
 
-    internal static IReadOnlyList<RuntimeRelease> ParseReleases(string json)
+    internal static IReadOnlyList<RuntimeRelease> ParseReleases(
+        string json,
+        bool skipUnsupportedPackages = false)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
@@ -81,8 +101,20 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
                 continue;
             }
 
-            var downloadUri = ParseOfficialDownloadUri(item, version);
-            var sha256 = ParseSha256(item, version);
+            Uri downloadUri;
+            string sha256;
+            try
+            {
+                downloadUri = ParseOfficialDownloadUri(item, version);
+                sha256 = ParseSha256(item, version);
+            }
+            catch (IntegrityException) when (skipUnsupportedPackages)
+            {
+                // The official legacy page contains historical NuGet packages without
+                // the python.org URL and SHA-256 guarantees required by SoftPilot.
+                continue;
+            }
+
             releases.Add(new RuntimeRelease(
                 RuntimeKind.Python,
                 version,
@@ -98,6 +130,9 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
             .OrderByDescending(release => release.Version, RuntimeVersionComparer.Instance)
             .ToArray();
     }
+
+    private static bool IsLegacyIndexPage(Uri pageUri) =>
+        pageUri.AbsolutePath.EndsWith("/index-windows-legacy.json", StringComparison.Ordinal);
 
     private static Uri ParseOfficialDownloadUri(JsonElement item, string version)
     {
@@ -184,19 +219,92 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        progress?.Report(new OperationProgress("download", 15, "Python Install Manager 正在下载并验证官方运行时"));
         Directory.CreateDirectory(stagingDirectory);
+        if (_managerProvisioner is null || _layout is null)
+        {
+            await RunManagerAsync(
+                FindManager(),
+                release,
+                stagingDirectory,
+                SafeManagerEnvironment(configPath: null, logsDirectory: null),
+                progress,
+                cancellationToken);
+        }
+        else
+        {
+            var configPath = await CreateManagerConfigAsync(_layout, cancellationToken);
+            try
+            {
+                await using (var manager = await _managerProvisioner.AcquireAsync(progress, cancellationToken))
+                {
+                    await RunManagerAsync(
+                        manager.ExecutablePath,
+                        release,
+                        stagingDirectory,
+                        SafeManagerEnvironment(configPath, _layout.LogsDirectory),
+                        progress,
+                        cancellationToken);
+                }
+            }
+            finally
+            {
+                if (File.Exists(configPath))
+                {
+                    File.Delete(configPath);
+                }
+            }
+        }
+
+        progress?.Report(new OperationProgress("extract", 80, "Python 官方运行时已下载并提取"));
+    }
+
+    private async Task RunManagerAsync(
+        string executable,
+        RuntimeRelease release,
+        string stagingDirectory,
+        IReadOnlyDictionary<string, string?> environment,
+        IProgress<OperationProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        progress?.Report(new OperationProgress("download", 25, "Python Install Manager 正在下载并验证官方运行时"));
         var result = await _processRunner.RunAsync(
-            FindManager(),
+            executable,
             ["install", $"--source={OfficialIndexUri}", $"--target={stagingDirectory}", $"{release.Version}-64"],
-            environment: SafeManagerEnvironment(),
+            environment: environment,
             cancellationToken: cancellationToken);
         if (result.ExitCode != 0)
         {
             throw new SoftPilotException($"Python Install Manager 安装失败：{result.CombinedOutput}");
         }
+    }
 
-        progress?.Report(new OperationProgress("extract", 80, "Python 官方运行时已下载并提取"));
+    private static async Task<string> CreateManagerConfigAsync(
+        IInstallationLayout layout,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(layout.StagingDirectory);
+        Directory.CreateDirectory(layout.DownloadsDirectory);
+        Directory.CreateDirectory(layout.LogsDirectory);
+        var pythonDownloads = Path.Combine(layout.DownloadsDirectory, "python");
+        Directory.CreateDirectory(pythonDownloads);
+        var path = Path.Combine(layout.StagingDirectory, $"python-manager-{Guid.NewGuid():N}.json");
+        var config = new Dictionary<string, object?>
+        {
+            ["automatic_install"] = false,
+            ["confirm"] = false,
+            ["download_dir"] = pythonDownloads,
+            ["logs_dir"] = layout.LogsDirectory,
+        };
+        await using var stream = new FileStream(
+            path,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            4096,
+            FileOptions.Asynchronous | FileOptions.WriteThrough);
+        await JsonSerializer.SerializeAsync(stream, config, cancellationToken: cancellationToken);
+        await stream.FlushAsync(cancellationToken);
+        return path;
     }
 
     public async Task<RuntimeHealth> CheckHealthAsync(string runtimeDirectory, CancellationToken cancellationToken = default)
@@ -288,11 +396,16 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
         }
     }
 
-    private static IReadOnlyDictionary<string, string?> SafeManagerEnvironment() =>
+    private static IReadOnlyDictionary<string, string?> SafeManagerEnvironment(
+        string? configPath,
+        string? logsDirectory) =>
         new Dictionary<string, string?>
         {
             ["PYTHON_MANAGER_AUTOMATIC_INSTALL"] = "false",
             ["PYTHON_MANAGER_CONFIRM"] = "false",
+            ["PYTHON_MANAGER_CONFIG"] = configPath,
+            ["PYTHON_MANAGER_LOGS"] = logsDirectory,
+            ["PYTHON_MANAGER_SOURCE_URL"] = OfficialIndexUri.AbsoluteUri,
             ["PYTHONHOME"] = null,
             ["PYTHONPATH"] = null,
         };
