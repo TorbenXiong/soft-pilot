@@ -99,6 +99,33 @@ public sealed class RuntimeProviderParsingTests
     }
 
     [TestMethod]
+    public void NodeDownloadSources_MapOfficialArtifactToTunaMirror()
+    {
+        var sources = RuntimeDownloadSources.ForNode(new Uri(
+            "https://nodejs.org/dist/v24.1.0/node-v24.1.0-win-x64.zip"));
+
+        Assert.AreEqual(2, sources.Count);
+        Assert.AreEqual(
+            "https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/v24.1.0/node-v24.1.0-win-x64.zip",
+            sources[1].Uri.AbsoluteUri);
+    }
+
+    [TestMethod]
+    public void TemurinDownloadSources_MapOfficialArtifactToTunaMirror()
+    {
+        var sources = RuntimeDownloadSources.ForTemurin(
+            "25.0.4+7",
+            new Uri(
+                "https://release-assets.githubusercontent.com/github-production-release-asset/602574963/asset-id?token=fixture"),
+            "OpenJDK25U-jdk_x64_windows_hotspot_25.0.4_7.zip");
+
+        Assert.AreEqual(2, sources.Count);
+        Assert.AreEqual(
+            "https://mirrors.tuna.tsinghua.edu.cn/Adoptium/25/jdk/x64/windows/OpenJDK25U-jdk_x64_windows_hotspot_25.0.4_7.zip",
+            sources[1].Uri.AbsoluteUri);
+    }
+
+    [TestMethod]
     public void PythonManagerJson_RejectsMissingVersionsArray()
     {
         Assert.ThrowsExactly<System.Text.Json.JsonException>(() =>

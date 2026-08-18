@@ -2,15 +2,16 @@
 
 ## 1. 项目定位与当前范围
 
-SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.4`，V1 聚焦：
+SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.5`，V1 聚焦：
 
 - Node.js 官方 Windows x64 ZIP。
 - Eclipse Temurin HotSpot JDK Windows x64 ZIP。
 - CPython 官方 Python Install Manager。
 - 官方版本发现、多版本安装、终端默认版本切换、外部运行时只读发现和永久卸载。
+- Node.js 与 Eclipse Temurin 归档默认在官方源与清华 TUNA 镜像间智能选择；版本元数据和完整性信任链仍只使用官方来源。
 - WinUI 3 GUI、`spt` CLI、shim、单文件 EXE 发布和首次启动自迁移。
 
-V1 不包含项目级版本绑定、镜像或自定义源、数据库服务、Docker、AI CLI、普通软件和跨平台实现。不要在无明确需求时提前引入这些范围。
+V1 不包含项目级版本绑定、自定义源、其他第三方镜像、数据库服务、Docker、AI CLI、普通软件和跨平台实现。不要在无明确需求时提前引入这些范围。
 
 开始修改前按任务需要阅读：
 
@@ -47,17 +48,18 @@ SoftPilot 应用根目录只包含可替换的 `SoftPilot.exe` 和独立的 `Sof
 
 ## 4. Provider 与供应链安全
 
-Provider 只能使用当前范围内的官方元数据和官方发布资产：
+Provider 只能使用当前范围内的官方元数据和官方发布资产。Node.js 与 Eclipse Temurin 的相同归档默认在官方源与内置清华 TUNA 镜像间智能选择：
 
-- Node.js：官方 `index.json`、Windows x64 ZIP，以及签名的 `SHASUMS256` 清单。
-- Java：Adoptium 官方 LTS 元数据和 Eclipse Temurin Windows x64 JDK；校验哈希和签名。
+- Node.js：官方 `index.json`、Windows x64 ZIP，以及签名的 `SHASUMS256` 清单；归档可使用清华 TUNA 的 `nodejs-release` 镜像。
+- Java：Adoptium 官方 LTS 元数据和 Eclipse Temurin Windows x64 JDK；校验哈希和签名；归档可使用清华 TUNA 的 Adoptium 镜像。
 - Python：官方 Python Install Manager，并通过 `--target` 安装到 SoftPilot 工作区。
 
 必须遵守：
 
 - TLS、官方元数据、哈希、签名或健康检查任一失败即终止安装。
 - 不允许加入跳过 TLS、忽略哈希、忽略签名或吞掉健康检查失败的兼容开关。
-- 不要将镜像、自定义源或第三方下载地址作为隐式回退。
+- 默认自动探测官方源与内置清华 TUNA 归档源；版本目录和完整性数据仍从官方获取，不接受其他镜像或自定义源。
+- 网络错误可在内置来源间回退；哈希或签名失败必须立即终止。
 - 下载内容进入 `cache\downloads`，解包或安装只发生在独立 staging 目录。
 - 健康检查确认实际版本后才能写入最终目录和 SQLite。
 - Provider 返回的版本必须是可复现的确定版本；别名应先解析成确定版本，再进入安装或切换事务。
@@ -105,7 +107,7 @@ dotnet format SoftPilot.slnx --verify-no-changes --no-restore
 开发包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.4
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.5
 ```
 
 未提供证书指纹时生成的是未签名开发构建，不得描述为已签名发布版本。打包不等于首次启动；除非任务明确要求，不要自动运行生成的便携应用或修改用户环境。

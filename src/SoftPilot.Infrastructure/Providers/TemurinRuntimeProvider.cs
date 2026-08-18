@@ -103,7 +103,12 @@ public sealed class TemurinRuntimeProvider : IRuntimeProvider
         var fileName = Path.GetFileName(release.DownloadUri.LocalPath);
         var archivePath = Path.Combine(_layout.DownloadsDirectory, fileName);
         var signaturePath = archivePath + ".sig";
-        await _downloads.DownloadAsync(downloadUri, archivePath, release.Sha256, progress, cancellationToken);
+        await _downloads.DownloadAsync(
+            RuntimeDownloadSources.ForTemurin(release.Version, downloadUri, fileName),
+            archivePath,
+            release.Sha256,
+            progress,
+            cancellationToken);
         await _downloads.DownloadAsync(signatureUri, signaturePath, cancellationToken: cancellationToken);
 
         var publicKey = await ProviderUtilities.GetRequiredStringAsync(_client, PublicKeyUri, cancellationToken);

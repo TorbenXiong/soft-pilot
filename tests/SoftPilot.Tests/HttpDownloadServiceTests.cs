@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using SoftPilot.Application;
@@ -81,6 +82,70 @@ public sealed class HttpDownloadServiceTests
         Assert.IsFalse(File.Exists(destination));
     }
 
+    [TestMethod]
+    public async Task DownloadAsync_WithMultipleSources_UsesFastestSourceByDefault()
+    {
+        using var sandbox = new TemporaryDirectory();
+        var content = CreateProbeContent();
+        var handler = new SourceSelectionHandler(content);
+        using var client = new HttpClient(handler);
+        var service = new HttpDownloadService(client);
+        var destination = Path.Combine(sandbox.Path, "runtime.zip");
+
+        await service.DownloadAsync(
+            CreateCandidates(),
+            destination,
+            Convert.ToHexString(SHA256.HashData(content)));
+
+        CollectionAssert.AreEqual(new[] { "mirror.test" }, handler.FullDownloadHosts.ToArray());
+        Assert.AreEqual(2, handler.ProbeHosts.Count);
+    }
+
+    [TestMethod]
+    public async Task DownloadAsync_WhenFastestSourceHasNetworkFailure_FallsBackToOfficialSource()
+    {
+        using var sandbox = new TemporaryDirectory();
+        var content = CreateProbeContent();
+        var handler = new SourceSelectionHandler(content) { FailMirrorDownload = true };
+        using var client = new HttpClient(handler);
+        var service = new HttpDownloadService(client);
+
+        await service.DownloadAsync(
+            CreateCandidates(),
+            Path.Combine(sandbox.Path, "runtime.zip"),
+            Convert.ToHexString(SHA256.HashData(content)));
+
+        CollectionAssert.AreEqual(
+            new[] { "mirror.test", "official.test" },
+            handler.FullDownloadHosts.ToArray());
+    }
+
+    [TestMethod]
+    public async Task DownloadAsync_WhenMirrorFailsIntegrityCheck_DoesNotFallback()
+    {
+        using var sandbox = new TemporaryDirectory();
+        var content = CreateProbeContent();
+        var handler = new SourceSelectionHandler(content) { TamperMirrorDownload = true };
+        using var client = new HttpClient(handler);
+        var service = new HttpDownloadService(client);
+
+        await Assert.ThrowsAsync<IntegrityException>(() => service.DownloadAsync(
+            CreateCandidates(),
+            Path.Combine(sandbox.Path, "runtime.zip"),
+            Convert.ToHexString(SHA256.HashData(content))));
+
+        CollectionAssert.AreEqual(new[] { "mirror.test" }, handler.FullDownloadHosts.ToArray());
+    }
+
+    private static byte[] CreateProbeContent() =>
+        Enumerable.Range(0, 70 * 1024).Select(index => (byte)(index % 251)).ToArray();
+
+    private static IReadOnlyList<DownloadSourceCandidate> CreateCandidates() =>
+    [
+        new("官方源", new Uri("https://official.test/runtime.zip")),
+        new("清华 TUNA 镜像", new Uri("https://mirror.test/runtime.zip")),
+    ];
+
     private sealed class StaticContentHandler(byte[] content) : HttpMessageHandler
     {
         public int RequestCount { get; private set; }
@@ -109,6 +174,58 @@ public sealed class HttpDownloadServiceTests
                 Content = new ByteArrayContent("runtime"u8.ToArray()),
                 RequestMessage = new HttpRequestMessage(HttpMethod.Get, finalAddress),
             });
+    }
+
+    private sealed class SourceSelectionHandler(byte[] content) : HttpMessageHandler
+    {
+        public bool FailMirrorDownload { get; init; }
+
+        public bool TamperMirrorDownload { get; init; }
+
+        public ConcurrentQueue<string> ProbeHosts { get; } = [];
+
+        public ConcurrentQueue<string> FullDownloadHosts { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var host = request.RequestUri!.Host;
+            if (request.Headers.Range is not null)
+            {
+                ProbeHosts.Enqueue(host);
+                if (host == "official.test")
+                {
+                    await Task.Delay(75, cancellationToken);
+                }
+
+                return CreateResponse(
+                    request,
+                    content[..Math.Min(content.Length, 64 * 1024)],
+                    HttpStatusCode.PartialContent);
+            }
+
+            FullDownloadHosts.Enqueue(host);
+            if (host == "mirror.test" && FailMirrorDownload)
+            {
+                throw new HttpRequestException("simulated mirror outage");
+            }
+
+            var responseContent = host == "mirror.test" && TamperMirrorDownload
+                ? "tampered"u8.ToArray()
+                : content;
+            return CreateResponse(request, responseContent, HttpStatusCode.OK);
+        }
+
+        private static HttpResponseMessage CreateResponse(
+            HttpRequestMessage request,
+            byte[] responseContent,
+            HttpStatusCode statusCode) =>
+            new(statusCode)
+            {
+                Content = new ByteArrayContent(responseContent),
+                RequestMessage = request,
+            };
     }
 
     private sealed class ProgressRecorder : IProgress<OperationProgress>

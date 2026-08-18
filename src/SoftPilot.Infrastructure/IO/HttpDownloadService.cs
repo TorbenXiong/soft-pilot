@@ -1,11 +1,15 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 
 namespace SoftPilot.Infrastructure.IO;
 
 public sealed class HttpDownloadService : IDownloadService
 {
+    private const int ProbeBytes = 64 * 1024;
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(4);
     private readonly HttpClient _client;
 
     public HttpDownloadService(HttpClient client)
@@ -13,6 +17,67 @@ public sealed class HttpDownloadService : IDownloadService
         _client = client;
         _client.DefaultRequestHeaders.UserAgent.ParseAdd("SoftPilot/1.0 (+https://github.com/TorbenXiong/soft-pilot)");
         _client.Timeout = Timeout.InfiniteTimeSpan;
+    }
+
+    public async Task<DownloadResult> DownloadAsync(
+        IReadOnlyList<DownloadSourceCandidate> sources,
+        string destinationPath,
+        string? expectedSha256 = null,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        var distinctSources = sources
+            .DistinctBy(source => source.Uri.AbsoluteUri, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var primarySource = distinctSources.FirstOrDefault()
+            ?? throw new ArgumentException("下载候选不能为空。", nameof(sources));
+
+        if (distinctSources.Length == 1)
+        {
+            progress?.Report(new OperationProgress("source", null, $"下载源：{primarySource.DisplayName}"));
+            return await DownloadAsync(
+                primarySource.Uri,
+                destinationPath,
+                expectedSha256,
+                progress,
+                cancellationToken);
+        }
+
+        progress?.Report(new OperationProgress("source", null, "正在探测可用下载源"));
+        var probes = await Task.WhenAll(distinctSources.Select(source => ProbeAsync(source, cancellationToken)));
+        var orderedSources = probes
+            .OrderBy(probe => probe.Succeeded ? 0 : 1)
+            .ThenBy(probe => probe.Elapsed)
+            .Select(probe => probe.Source)
+            .ToArray();
+
+        Exception? firstFailure = null;
+        foreach (var source in orderedSources)
+        {
+            progress?.Report(new OperationProgress("source", null, $"已选择下载源：{source.DisplayName}"));
+            try
+            {
+                return await DownloadAsync(
+                    source.Uri,
+                    destinationPath,
+                    expectedSha256,
+                    progress,
+                    cancellationToken);
+            }
+            catch (HttpRequestException exception)
+            {
+                firstFailure ??= exception;
+                progress?.Report(new OperationProgress(
+                    "source",
+                    null,
+                    $"{source.DisplayName} 网络请求失败，正在尝试其他来源"));
+            }
+        }
+
+        throw new SoftPilotException(
+            "所有下载源均不可用，请检查网络连接或稍后重试。",
+            firstFailure!);
     }
 
     public async Task<DownloadResult> DownloadAsync(
@@ -112,6 +177,68 @@ public sealed class HttpDownloadService : IDownloadService
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
+    private async Task<ProbeResult> ProbeAsync(
+        DownloadSourceCandidate source,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(source.Uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return new ProbeResult(source, false, TimeSpan.MaxValue);
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ProbeTimeout);
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, source.Uri);
+            request.Headers.Range = new RangeHeaderValue(0, ProbeBytes - 1);
+            using var response = await _client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                timeout.Token);
+            var finalAddress = response.RequestMessage?.RequestUri ?? source.Uri;
+            if (!string.Equals(finalAddress.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                || !response.IsSuccessStatusCode)
+            {
+                return new ProbeResult(source, false, TimeSpan.MaxValue);
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+            var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+            var received = 0;
+            try
+            {
+                while (received < ProbeBytes)
+                {
+                    var read = await stream.ReadAsync(
+                        buffer.AsMemory(0, Math.Min(buffer.Length, ProbeBytes - received)),
+                        timeout.Token);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    received += read;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            return new ProbeResult(source, received > 0, stopwatch.Elapsed);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new ProbeResult(source, false, TimeSpan.MaxValue);
+        }
+        catch (HttpRequestException)
+        {
+            return new ProbeResult(source, false, TimeSpan.MaxValue);
+        }
+    }
+
     private static void VerifyHash(string? expected, string actual, Uri source)
     {
         if (string.IsNullOrWhiteSpace(expected))
@@ -136,4 +263,9 @@ public sealed class HttpDownloadService : IDownloadService
             throw new IntegrityException($"{source} 的 SHA-256 校验失败。");
         }
     }
+
+    private sealed record ProbeResult(
+        DownloadSourceCandidate Source,
+        bool Succeeded,
+        TimeSpan Elapsed);
 }

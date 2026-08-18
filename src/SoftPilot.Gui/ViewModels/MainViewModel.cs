@@ -22,6 +22,7 @@ public partial class MainViewModel : ObservableObject
     private readonly Dictionary<RuntimeKind, IReadOnlyList<RuntimeRelease>> _recommendedReleases = [];
     private readonly Dictionary<RuntimeTarget, RuntimeOperationFeedback> _runtimeFeedback = [];
     private readonly HashSet<RuntimeTarget> _installingTargets = [];
+    private readonly SemaphoreSlim _modulePreferencesSaveGate = new(1, 1);
     private bool _modulePreferencesLoaded;
 
     public MainViewModel(
@@ -42,7 +43,6 @@ public partial class MainViewModel : ObservableObject
         InstallCommand = new AsyncRelayCommand(InstallAsync, CanInstall);
         UseSelectedCommand = new AsyncRelayCommand(UseSelectedAsync, CanUseSelected);
         UninstallSelectedCommand = new AsyncRelayCommand(UninstallSelectedAsync, CanUninstallSelected);
-        SaveModulePreferencesCommand = new AsyncRelayCommand(SaveModulePreferencesAsync, CanRun);
         LanguageOptions =
         [
             new LanguageOption("en-US", "English"),
@@ -65,7 +65,6 @@ public partial class MainViewModel : ObservableObject
     public IAsyncRelayCommand InstallCommand { get; }
     public IAsyncRelayCommand UseSelectedCommand { get; }
     public IAsyncRelayCommand UninstallSelectedCommand { get; }
-    public IAsyncRelayCommand SaveModulePreferencesCommand { get; }
 
     public event Action<UserNotification>? NotificationRequested;
     public event Action? ModulePreferencesChanged;
@@ -142,7 +141,7 @@ public partial class MainViewModel : ObservableObject
     public string TaskTypeHeaderText => T("类型", "Type");
     public string TargetHeaderText => T("目标", "Target");
     public string ModulesText => T("模块", "Modules");
-    public string SaveModulesText => T("保存模块配置", "Save modules");
+    public string ModuleAutoSaveText => T("更改会自动保存", "Changes are saved automatically");
     public string LanguageText => T("语言", "Language");
 
     public string RuntimeDisplayName => SelectedRuntimeKind switch
@@ -282,23 +281,6 @@ public partial class MainViewModel : ObservableObject
         return warning;
     }
 
-    public async Task SaveModulePreferencesAsync()
-    {
-        await RunBusyAsync(async () =>
-        {
-            var preferences = CreateModulePreferences();
-            await _modulePreferences.SaveAsync(preferences);
-            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
-            ModuleSaveStatusText = T("已保存", "Saved");
-            ModulePreferencesChanged?.Invoke();
-        }, showSuccessOrFailureDialog: false,
-        onError: exception =>
-        {
-            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
-            ModuleSaveStatusText = T($"保存失败：{exception.Message}", $"Unable to save: {exception.Message}");
-        });
-    }
-
     public async Task ChangeLanguageAsync(LanguageOption option)
     {
         if (SelectedLanguage?.Code == option.Code)
@@ -313,8 +295,15 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            var preferences = CreateModulePreferences(option.Code);
-            await _modulePreferences.SaveAsync(preferences);
+            await _modulePreferencesSaveGate.WaitAsync();
+            try
+            {
+                await _modulePreferences.SaveAsync(CreateModulePreferences(option.Code));
+            }
+            finally
+            {
+                _modulePreferencesSaveGate.Release();
+            }
         }
         catch (Exception exception)
         {
@@ -825,7 +814,6 @@ public partial class MainViewModel : ObservableObject
         InstallCommand.NotifyCanExecuteChanged();
         UseSelectedCommand.NotifyCanExecuteChanged();
         UninstallSelectedCommand.NotifyCanExecuteChanged();
-        SaveModulePreferencesCommand.NotifyCanExecuteChanged();
     }
 
     private string GetTaskStatusText(OperationStatus status) => status switch
@@ -903,7 +891,7 @@ public partial class MainViewModel : ObservableObject
             nameof(EnvironmentHeaderText), nameof(ReleaseLineHeaderText), nameof(IsInstalledHeaderText),
             nameof(OperationHeaderText), nameof(TimeHeaderText),
             nameof(StatusHeaderText), nameof(TaskTypeHeaderText), nameof(TargetHeaderText),
-            nameof(ModulesText), nameof(SaveModulesText), nameof(LanguageText),
+            nameof(ModulesText), nameof(ModuleAutoSaveText), nameof(LanguageText),
             nameof(RuntimeInstallDescription),
         ];
         foreach (var property in properties)
@@ -923,13 +911,16 @@ public partial class MainViewModel : ObservableObject
         var percentage = progress.Percentage is { } value
             ? Math.Max(previousPercentage, Math.Clamp(value, 0, 100))
             : previousPercentage;
-        var message = IsEnglish
+        var message = string.Equals(progress.Stage, "download", StringComparison.OrdinalIgnoreCase)
+            ? FormatDownloadProgress(progress.Detail)
+            : IsEnglish
             ? progress.Stage.ToLowerInvariant() switch
             {
                 "prepare" => "Preparing…",
                 "resolve" => "Resolving version…",
                 "manager" => "Preparing Python Install Manager…",
                 "download" => "Downloading…",
+                "source" => progress.Detail ?? "Selecting download source…",
                 "extract" => "Extracting…",
                 "health" => "Checking runtime…",
                 "commit" => "Saving runtime…",
@@ -944,6 +935,16 @@ public partial class MainViewModel : ObservableObject
             message,
             RuntimeFeedbackKind.Running,
             true));
+    }
+
+    private string FormatDownloadProgress(string? detail)
+    {
+        if (Uri.TryCreate(detail, UriKind.Absolute, out var source))
+        {
+            return T($"正在从 {source.Host} 下载…", $"Downloading from {source.Host}…");
+        }
+
+        return T(detail ?? "正在下载…", "Downloading…");
     }
 
     private RuntimeOperationFeedback? GetRuntimeFeedback(RuntimeTarget target) =>
@@ -1043,8 +1044,47 @@ public partial class MainViewModel : ObservableObject
     {
         if (e.PropertyName == nameof(RuntimeModuleSetting.IsEnabled))
         {
-            ModuleSaveStatusText = string.Empty;
             NotifyModuleVisibilityChanged();
+            ModulePreferencesChanged?.Invoke();
+            QueueModulePreferencesSave();
+        }
+    }
+
+    public void ModuleOrderChanged()
+    {
+        ModulePreferencesChanged?.Invoke();
+        QueueModulePreferencesSave();
+    }
+
+    private void QueueModulePreferencesSave()
+    {
+        if (!_modulePreferencesLoaded)
+        {
+            return;
+        }
+
+        _ = SaveModulePreferencesAsync();
+    }
+
+    private async Task SaveModulePreferencesAsync()
+    {
+        await _modulePreferencesSaveGate.WaitAsync();
+        try
+        {
+            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
+            ModuleSaveStatusText = T("正在保存…", "Saving…");
+            await _modulePreferences.SaveAsync(CreateModulePreferences());
+            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
+            ModuleSaveStatusText = T("已保存", "Saved");
+        }
+        catch (Exception exception)
+        {
+            ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
+            ModuleSaveStatusText = T($"保存失败：{exception.Message}", $"Unable to save: {exception.Message}");
+        }
+        finally
+        {
+            _modulePreferencesSaveGate.Release();
         }
     }
 

@@ -13,6 +13,10 @@ SoftPilot 是用于安装和管理多个 Node.js、Java 与 Python 版本的 Win
 
 升级时请先退出 SoftPilot，再用新版 `SoftPilot.exe` 替换原文件。已安装的运行时和应用数据都会保留。
 
+## 下载来源
+
+Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小流量 HTTPS 探测，并使用响应更快的来源。版本目录和完整性数据仍来自官方；校验失败立即终止，Python 始终使用官方来源。
+
 ## 主要功能
 
 - 从 Node.js、Eclipse Temurin 和 Python 官方来源发现可管理版本。
@@ -22,6 +26,7 @@ SoftPilot 是用于安装和管理多个 Node.js、Java 与 Python 版本的 Win
 - 以只读方式发现 SoftPilot 外部安装的运行时。
 - 在对应版本旁直接展示下载进度和操作结果。
 - 永久卸载不再需要的版本。
+- 模块显示与排序修改即时生效并自动保存。
 - 支持英文和简体中文即时切换，默认使用英文。
 
 ## 支持环境

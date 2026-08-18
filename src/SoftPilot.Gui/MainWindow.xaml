@@ -637,6 +637,7 @@
                                           CanReorderItems="True"
                                           AllowDrop="True"
                                           ReorderMode="Enabled"
+                                          DragItemsCompleted="OnModuleItemsDragCompleted"
                                           ItemContainerStyle="{StaticResource ModuleCardItemStyle}"
                                           HorizontalAlignment="Left"
                                           AutomationProperties.Name="Runtime module order">
@@ -667,14 +668,19 @@
                                         </DataTemplate>
                                     </GridView.ItemTemplate>
                                 </GridView>
-                                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
-                                    <TextBlock Text="{x:Bind ViewModel.ModuleSaveStatusText, Mode=OneWay}"
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.ModuleAutoSaveText, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{x:Bind ViewModel.ModuleSaveStatusText, Mode=OneWay}"
                                                Foreground="{x:Bind ViewModel.ModuleSaveStatusBrush, Mode=OneWay}"
                                                VerticalAlignment="Center" />
-                                    <Button Content="{x:Bind ViewModel.SaveModulesText, Mode=OneWay}"
-                                            Command="{x:Bind ViewModel.SaveModulePreferencesCommand}"
-                                            Style="{StaticResource AccentButtonStyle}" MinHeight="40" />
-                                </StackPanel>
+                                </Grid>
                             </StackPanel>
                         </Border>
 

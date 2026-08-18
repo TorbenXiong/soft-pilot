@@ -39,6 +39,12 @@
 
 Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
 
+## 下载来源
+
+Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。版本目录、完整性数据和 Python 始终使用官方来源，也不接受自定义源。
+
+模块显示与排序会立即更新并串行保存，无需单独操作。
+
 ## 终端默认版本
 
 首次选择终端默认版本时保存用户 `PATH` 和 `JAVA_HOME`，再配置 SoftPilot shim、Node.js `current` 和 Java `JAVA_HOME`；始终不设置 `PYTHONHOME`。清除最后一个选择时恢复快照。切换只替换 `current\<kind>`，核对实际版本并在失败时回滚。变更对新打开的终端生效。
