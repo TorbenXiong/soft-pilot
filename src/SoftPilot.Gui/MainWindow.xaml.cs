@@ -201,6 +201,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnModuleItemsDragCompleted(object sender, DragItemsCompletedEventArgs e) =>
+        ViewModel.ModuleOrderChanged();
+
     private async void OnNotificationRequested(UserNotification notification)
     {
         if (RootNavigation.XamlRoot is null)

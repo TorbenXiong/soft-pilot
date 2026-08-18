@@ -39,6 +39,12 @@ The root EXE is independently replaceable. Managed runtimes, tools, and user dat
 
 Node.js uses the signed official checksum manifest. Temurin uses Adoptium hashes and signatures. Python uses the official python.org catalog and Install Manager. A user-installed Python Install Manager is preserved; when absent, SoftPilot verifies, temporarily registers, and then removes the official package.
 
+## Download sources
+
+Node.js and Temurin probe the built-in official and TUNA archive sources concurrently, reading at most 64 KiB with a four-second timeout per source. Network failures can fall back; integrity failures abort without fallback. Catalogs, integrity data, and Python remain official-only, and custom sources are not accepted.
+
+Module visibility and order update immediately and are saved serially without a separate action.
+
 ## Terminal default
 
 Selecting the first terminal-default runtime snapshots user `PATH` and `JAVA_HOME`, then configures SoftPilot shims, Node.js `current`, and Java `JAVA_HOME`; `PYTHONHOME` is never set. Clearing the last selection restores the snapshot. Switching replaces only `current\<kind>`, verifies the actual version, and rolls back on failure. Changes apply to newly opened terminals.

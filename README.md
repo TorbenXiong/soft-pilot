@@ -13,6 +13,10 @@ SoftPilot is a portable Windows application for installing and managing multiple
 
 To upgrade, exit SoftPilot and replace the existing `SoftPilot.exe` with the new one. Installed runtimes and application data are preserved.
 
+## Download sources
+
+Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Catalogs and integrity data remain official; integrity failures abort immediately, and Python remains official-only.
+
 ## Features
 
 - Discover supported versions from official Node.js, Eclipse Temurin, and Python sources.
@@ -22,6 +26,7 @@ To upgrade, exit SoftPilot and replace the existing `SoftPilot.exe` with the new
 - Detect runtimes installed outside SoftPilot in read-only mode.
 - Show download progress and operation results directly beside each version.
 - Permanently uninstall versions that are no longer needed.
+- Apply and save module visibility and order changes immediately.
 - Switch between English and Simplified Chinese. English is the default.
 
 ## Supported environment

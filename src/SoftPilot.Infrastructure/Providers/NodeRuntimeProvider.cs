@@ -147,7 +147,12 @@ public sealed class NodeRuntimeProvider : IRuntimeProvider
 
         var checksums = await File.ReadAllTextAsync(checksumPath, cancellationToken);
         var expectedHash = ProviderUtilities.FindChecksum(checksums, fileName);
-        await _downloads.DownloadAsync(release.DownloadUri, archivePath, expectedHash, progress, cancellationToken);
+        await _downloads.DownloadAsync(
+            RuntimeDownloadSources.ForNode(release.DownloadUri),
+            archivePath,
+            expectedHash,
+            progress,
+            cancellationToken);
 
         progress?.Report(new OperationProgress("extract", null, fileName));
         SafeZipExtractor.Extract(archivePath, stagingDirectory, stripSingleRootDirectory: true);
