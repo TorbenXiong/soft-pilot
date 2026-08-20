@@ -21,6 +21,7 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
     public string StagingDirectory => Path.Combine(ManagementDirectory, "staging");
     public string TrashDirectory => Path.Combine(ManagementDirectory, "trash");
     public string LogsDirectory => Path.Combine(ManagementDirectory, "logs");
+    public string GitDirectory => Path.Combine(AppDirectory, "git");
 
     public string GetRuntimeDirectory(RuntimeKind kind, string version) =>
         Path.Combine(AppDirectory, GetKindName(kind), version);

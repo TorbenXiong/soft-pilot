@@ -337,6 +337,12 @@
                     <ImageIcon Source="Assets/RuntimeIcons/redis.svg" Width="20" Height="20" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem x:Name="GitBashNavigationItem" Content="Git" Tag="git"
+                                AutomationProperties.Name="Git module">
+                <NavigationViewItem.Icon>
+                    <ImageIcon Source="Assets/RuntimeIcons/git.svg" Width="20" Height="20" Foreground="#F03C2E" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItemSeparator x:Name="RuntimeNavigationSeparator" />
             <NavigationViewItem x:Name="TasksNavigationItem" Content="{x:Bind ViewModel.TaskHistoryText, Mode=OneWay}" Tag="tasks"
                                 AutomationProperties.Name="Task history">
@@ -414,7 +420,7 @@
                                                             CornerRadius="8" Height="48">
                                                         <Grid Padding="20,0" ColumnSpacing="24">
                                                             <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="180" />
+                                                                <ColumnDefinition Width="135" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="120" />
                                                                 <ColumnDefinition Width="{x:Bind ViewModel.RedisServiceColumnWidth, Mode=OneWay}" />
@@ -443,13 +449,14 @@
                                                                 BorderThickness="0,0,0,1">
                                                             <Grid Padding="20,0" ColumnSpacing="24" MinHeight="60">
                                                                 <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="180" />
+                                                                    <ColumnDefinition Width="135" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="120" />
                                                                     <ColumnDefinition Width="{Binding RedisServiceColumnWidth}" />
                                                                     <ColumnDefinition Width="120" />
                                                                 </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="{Binding Version}"
+                                                                <TextBlock Text="{Binding DisplayVersion}"
+                                                                           ToolTipService.ToolTip="{Binding VersionToolTip}"
                                                                            Style="{StaticResource RuntimeTableCellTextStyle}" />
                                                                 <Grid Grid.Column="1" ColumnSpacing="4">
                                                                     <Grid.ColumnDefinitions>
@@ -565,7 +572,7 @@
                                                         <Grid Padding="20,0" ColumnSpacing="24">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="170" />
+                                                                <ColumnDefinition Width="145" />
                                                                 <ColumnDefinition Width="110" />
                                                                 <ColumnDefinition Width="140" />
                                                             </Grid.ColumnDefinitions>
@@ -589,7 +596,7 @@
                                                             <Grid Padding="20,0" ColumnSpacing="24" MinHeight="60">
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="*" />
-                                                                    <ColumnDefinition Width="170" />
+                                                                    <ColumnDefinition Width="145" />
                                                                     <ColumnDefinition Width="110" />
                                                                     <ColumnDefinition Width="140" />
                                                                 </Grid.ColumnDefinitions>
@@ -619,8 +626,9 @@
                                                                         AutomationProperties.Name="Open release-line download page" />
                                                                 </Grid>
                                                                 <Grid Grid.Column="1">
-                                                                    <TextBlock Text="{Binding Version}"
+                                                                    <TextBlock Text="{Binding DisplayVersion}"
                                                                                Style="{StaticResource RuntimeTableCellTextStyle}"
+                                                                               ToolTipService.ToolTip="{Binding VersionToolTip}"
                                                                                IsHitTestVisible="False" />
                                                                     <controls:StableHyperlinkButton
                                                                         Style="{StaticResource CellLinkOverlayStyle}"
@@ -653,6 +661,237 @@
                                 </StackPanel>
                             </StackPanel>
                         </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <ScrollViewer x:Name="GitBashView" Visibility="Collapsed"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollMode="Disabled"
+                              HorizontalScrollBarVisibility="Disabled"
+                              HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="20" HorizontalAlignment="Stretch">
+                        <Border Background="{ThemeResource SoftPilotCardBackground}" CornerRadius="12" Padding="8,8,8,16">
+                            <StackPanel Spacing="12">
+                                <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                        CornerRadius="8" Height="48">
+                                    <Grid Padding="20,0" ColumnSpacing="24">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="200" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind ViewModel.GitBashInstalledVersionLabel, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                        <Grid Grid.Column="1">
+                                            <TextBlock Text="{x:Bind ViewModel.GitBashLatestVersionLabel, Mode=OneWay}"
+                                                       Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                       IsHitTestVisible="False" />
+                                            <controls:StableHyperlinkButton
+                                                Style="{StaticResource CellLinkOverlayStyle}"
+                                                Canvas.ZIndex="1"
+                                                Tag="{x:Bind ViewModel.GitBashReleasePageUrl, Mode=OneWay}"
+                                                Visibility="{x:Bind ViewModel.GitBashReleasePageVisibility, Mode=OneWay}"
+                                                Click="OnOpenGitBashReleaseClick"
+                                                ToolTipService.ToolTip="{x:Bind ViewModel.GitBashReleasePageUrl, Mode=OneWay}"
+                                                AutomationProperties.Name="Open latest official Git for Windows release" />
+                                        </Grid>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.GitBashInstallPathLabel, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                   HorizontalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
+                                <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        BorderThickness="0,0,0,1">
+                                    <Grid Padding="20,0" ColumnSpacing="24" MinHeight="60">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="200" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind ViewModel.GitBashInstalledVersion, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableCellTextStyle}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.GitBashLatestVersion, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableCellTextStyle}"
+                                                   ToolTipService.ToolTip="{x:Bind ViewModel.GitBashDownloadUrl, Mode=OneWay}" />
+                                        <Grid Grid.Column="2" ColumnSpacing="4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Bind ViewModel.GitBashInstallPath}"
+                                                       Style="{StaticResource RuntimeTableCellTextStyle}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       IsHitTestVisible="False" />
+                                            <controls:StableHyperlinkButton
+                                                Style="{StaticResource CellLinkOverlayStyle}"
+                                                Canvas.ZIndex="1"
+                                                Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                                Click="OnOpenGitBashFolderClick"
+                                                ToolTipService.ToolTip="{x:Bind ViewModel.GitBashInstallPath}"
+                                                AutomationProperties.Name="Open Git installation directory" />
+                                            <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
+                                                    Width="36" Height="36"
+                                                    Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}"
+                                                    IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                                    Click="OnCopyGitBashPathClick"
+                                                    ToolTipService.ToolTip="{x:Bind ViewModel.GitCopyPathToolTip, Mode=OneWay}"
+                                                    AutomationProperties.Name="Copy Git installation path">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                                            </Button>
+                                            <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.GitBashPathStatusText, Mode=OneWay}"
+                                                       Visibility="{x:Bind ViewModel.GitBashPathStatusVisibility, Mode=OneWay}"
+                                                       Foreground="#16803A" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <controls:StableHyperlinkButton
+                                                Content="{x:Bind ViewModel.GitBashPrimaryActionText, Mode=OneWay}"
+                                                Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                Visibility="{x:Bind ViewModel.GitBashPrimaryActionVisibility, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.CanRunGitBashAction, Mode=OneWay}"
+                                                Click="OnInstallOrUpgradeGitBashClick" />
+                                            <controls:StableHyperlinkButton
+                                                Content="{x:Bind ViewModel.GitBashUninstallText, Mode=OneWay}"
+                                                Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                                Click="OnUninstallGitBashClick" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal" Spacing="12" Margin="12,0"
+                                            Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}">
+                                    <Button Content="{x:Bind ViewModel.GitBashLaunchText, Mode=OneWay}"
+                                            IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                            Click="OnLaunchGitBashClick" MinWidth="132" />
+                                    <Button Content="{x:Bind ViewModel.GitBashLaunchAsAdministratorText, Mode=OneWay}"
+                                            IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                            Click="OnLaunchGitBashAsAdministratorClick" MinWidth="180" />
+                                </StackPanel>
+
+                                <StackPanel Spacing="8" Margin="12,0"
+                                            Visibility="{x:Bind ViewModel.GitBashOperationVisibility, Mode=OneWay}">
+                                    <ProgressBar Minimum="0" Maximum="100"
+                                                 Value="{x:Bind ViewModel.GitBashOperationPercentage, Mode=OneWay}"
+                                                 IsIndeterminate="False"
+                                                 Visibility="{x:Bind ViewModel.GitBashProgressVisibility, Mode=OneWay}" />
+                                    <TextBlock Text="{x:Bind ViewModel.GitBashOperationText, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}" />
+                                </StackPanel>
+                                <InfoBar IsOpen="True" Severity="Error" Margin="12,0"
+                                         Visibility="{x:Bind ViewModel.GitBashProblemVisibility, Mode=OneWay}"
+                                         Message="{x:Bind ViewModel.GitBashProblemText, Mode=OneWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{ThemeResource SoftPilotCardBackground}" CornerRadius="12" Padding="24">
+                            <StackPanel Spacing="16">
+                                <TextBlock Text="{x:Bind ViewModel.GitBashConfigurationTitle, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.GitUserNameLabel, Mode=OneWay}"
+                                               VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1"
+                                             Text="{x:Bind ViewModel.GitUserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="{x:Bind ViewModel.GitUserNamePlaceholder, Mode=OneWay}"
+                                             IsEnabled="{x:Bind ViewModel.CanEditGitConfiguration, Mode=OneWay}" />
+                                </Grid>
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.GitUserEmailLabel, Mode=OneWay}"
+                                               VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="1"
+                                             Text="{x:Bind ViewModel.GitUserEmail, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="{x:Bind ViewModel.GitUserEmailPlaceholder, Mode=OneWay}"
+                                             IsEnabled="{x:Bind ViewModel.CanEditGitConfiguration, Mode=OneWay}" />
+                                </Grid>
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.GitConfigurationScopeText, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}"
+                                               TextWrapping="Wrap" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1"
+                                            Content="{x:Bind ViewModel.GitConfigurationSaveText, Mode=OneWay}"
+                                            IsEnabled="{x:Bind ViewModel.CanEditGitConfiguration, Mode=OneWay}"
+                                            Click="OnSaveGitConfigurationClick" MinWidth="112" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{ThemeResource SoftPilotCardBackground}" CornerRadius="12" Padding="8,8,8,16"
+                                Visibility="{x:Bind ViewModel.GitEnvironmentChecksVisibility, Mode=OneWay}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="{x:Bind ViewModel.GitEnvironmentTitle, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}"
+                                           Margin="12,4" />
+                                <ListView ItemsSource="{x:Bind ViewModel.GitEnvironmentChecks}"
+                                          SelectionMode="None" HorizontalContentAlignment="Stretch"
+                                          ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}"
+                                          AutomationProperties.Name="Git component checks">
+                                    <ListView.Header>
+                                        <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                CornerRadius="8" Height="48">
+                                            <Grid Padding="20,0" ColumnSpacing="20">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="180" />
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind ViewModel.GitCheckItemHeader, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.GitCheckStatusHeader, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                                <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.GitCheckResultHeader, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                            </Grid>
+                                        </Border>
+                                    </ListView.Header>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                    BorderThickness="0,0,0,1">
+                                                <Grid Padding="20,12" ColumnSpacing="20" MinHeight="54">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="180" />
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                                    <Border Grid.Column="1" BorderBrush="{Binding StatusBrush}"
+                                                            BorderThickness="1" CornerRadius="10" Padding="10,3"
+                                                            HorizontalAlignment="Left" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Status}" Foreground="{Binding StatusBrush}"
+                                                                   FontSize="12" FontWeight="SemiBold" />
+                                                    </Border>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Result}"
+                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                               ToolTipService.ToolTip="{Binding Result}" />
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+
                     </StackPanel>
                 </ScrollViewer>
 
@@ -786,6 +1025,11 @@
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
+            <InfoBar x:Name="TransientNotificationBar" Grid.RowSpan="2"
+                     IsOpen="False" IsClosable="False"
+                     HorizontalAlignment="Right" VerticalAlignment="Top"
+                     MaxWidth="420" Margin="0,8,8,0"
+                     Canvas.ZIndex="10" />
         </Grid>
     </NavigationView>
 </Window>

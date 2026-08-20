@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-SoftPilot is a portable Windows application for installing and managing multiple versions of Node.js, Java, Python, and Redis for local development.
+SoftPilot is a portable Windows application for managing Node.js, Java, Python, Redis for local development, and the latest portable Git for Windows.
 
 ## Get started
 
@@ -15,7 +15,7 @@ To upgrade, exit SoftPilot and replace the existing `SoftPilot.exe` with the new
 
 ## Download sources
 
-Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Python remains official-only. Redis versions are cross-checked with official Redis releases; Windows x64 archives come from the community `redis-windows/redis-windows` project and are accepted only with GitHub-provided SHA-256 digests.
+Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Python remains official-only. Redis versions are cross-checked with official Redis releases; Windows x64 archives come from the community `redis-windows/redis-windows` project and are accepted only with GitHub-provided SHA-256 digests. Git uses the latest x64 PortableGit asset from the official Git for Windows GitHub repository and also requires its GitHub-provided SHA-256 digest.
 
 ## Features
 
@@ -27,6 +27,7 @@ Node.js and Temurin archives automatically use the faster responsive source afte
 - Detect runtimes installed outside SoftPilot in read-only mode.
 - Show download progress and operation results directly beside each version.
 - Permanently uninstall versions that are no longer needed.
+- Install, launch, upgrade, and uninstall a single managed copy of the latest portable Git for Windows without changing the user `PATH` or other Git installations; inspect SSH and Git LFS component health and explicitly edit global `user.name` and `user.email` from the Git page. Uninstall preserves the unified download cache and global Git configuration, including `user.name` and `user.email`.
 - Apply and save module visibility and order changes immediately.
 - Switch between English and Simplified Chinese. English is the default.
 
@@ -38,6 +39,9 @@ Node.js and Temurin archives automatically use the faster responsive source afte
 - Eclipse Temurin HotSpot JDK Windows x64 releases
 - CPython Windows x64 releases
 - Redis x64 community builds from `redis-windows/redis-windows`, for local development only
+- Latest Git for Windows PortableGit x64 release
+
+The unified download cache lives under `SoftPilotData\cache\downloads`. On every startup, SoftPilot automatically removes cache files older than 30 days and deletes empty directories; individual module uninstall operations do not manage cache. Use `spt cache clean` when an immediate full cleanup is needed.
 
 ## Redis CLI
 

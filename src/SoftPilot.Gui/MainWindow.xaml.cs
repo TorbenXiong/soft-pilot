@@ -1,9 +1,10 @@
+using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using SoftPilot.Domain;
 using SoftPilot.Gui.ViewModels;
-using Windows.Storage;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 using Windows.System;
 using Windows.Graphics;
 
@@ -12,6 +13,7 @@ namespace SoftPilot.Gui;
 public sealed partial class MainWindow : Window
 {
     private readonly SemaphoreSlim _dialogGate = new(1, 1);
+    private CancellationTokenSource? _transientNotificationCancellation;
     private string _currentTag = "runtime:node";
 
     public MainWindow(MainViewModel viewModel)
@@ -46,6 +48,7 @@ public sealed partial class MainWindow : Window
         var isRuntime = tag.StartsWith("runtime:", StringComparison.Ordinal);
         _currentTag = tag;
         RuntimesView.Visibility = isRuntime ? Visibility.Visible : Visibility.Collapsed;
+        GitBashView.Visibility = tag == "git" ? Visibility.Visible : Visibility.Collapsed;
         TasksView.Visibility = tag == "tasks" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
 
@@ -191,6 +194,16 @@ public sealed partial class MainWindow : Window
         row.SetPathStatus(string.Empty);
     }
 
+    private async void OnCopyGitBashPathClick(object sender, RoutedEventArgs e)
+    {
+        var package = new DataPackage();
+        package.SetText(ViewModel.GitBashInstallPath);
+        Clipboard.SetContent(package);
+        ViewModel.GitBashPathStatusText = ViewModel.IsEnglish ? "Copied" : "已复制";
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        ViewModel.GitBashPathStatusText = string.Empty;
+    }
+
     private async void OnOpenRuntimeUrlClick(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: RuntimeVersionRow row, Tag: string url }
@@ -213,6 +226,123 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnInstallOrUpgradeGitBashClick(object sender, RoutedEventArgs e) =>
+        await ViewModel.InstallOrUpgradeGitBashAsync();
+
+    private async void OnUninstallGitBashClick(object sender, RoutedEventArgs e)
+    {
+        if (RootNavigation.XamlRoot is null)
+        {
+            return;
+        }
+
+        await _dialogGate.WaitAsync();
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootNavigation.XamlRoot,
+                Title = ViewModel.IsEnglish ? "Uninstall Git?" : "确认卸载 Git？",
+                Content = ViewModel.IsEnglish
+                    ? "The portable Git copy managed by SoftPilot will be permanently removed."
+                    : "将永久删除 SoftPilot 管理的 Git 便携副本。",
+                PrimaryButtonText = ViewModel.IsEnglish ? "Uninstall" : "卸载",
+                CloseButtonText = ViewModel.IsEnglish ? "Cancel" : "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            {
+                await ViewModel.UninstallGitBashAsync();
+            }
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
+    }
+
+    private void OnLaunchGitBashClick(object sender, RoutedEventArgs e) =>
+        LaunchGitBash(runAsAdministrator: false);
+
+    private async void OnOpenGitBashFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!Directory.Exists(ViewModel.GitBashInstallPath))
+            {
+                throw new DirectoryNotFoundException(ViewModel.GitBashInstallPath);
+            }
+
+            var folder = await StorageFolder.GetFolderFromPathAsync(ViewModel.GitBashInstallPath);
+            if (!await Launcher.LaunchFolderAsync(folder))
+            {
+                throw new InvalidOperationException("Windows could not open the folder.");
+            }
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open folder" : "无法打开目录",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private void OnLaunchGitBashAsAdministratorClick(object sender, RoutedEventArgs e) =>
+        LaunchGitBash(runAsAdministrator: true);
+
+    private void LaunchGitBash(bool runAsAdministrator)
+    {
+        try
+        {
+            if (!File.Exists(ViewModel.GitBashLauncherPath))
+            {
+                throw new FileNotFoundException("git-bash.exe was not found.", ViewModel.GitBashLauncherPath);
+            }
+
+            Process.Start(new ProcessStartInfo(ViewModel.GitBashLauncherPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Verb = runAsAdministrator ? "runas" : string.Empty,
+            });
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to launch Git Bash" : "无法启动 Git Bash",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private async void OnOpenGitBashReleaseClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string address }
+            || !Uri.TryCreate(address, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)
+            || !uri.AbsolutePath.StartsWith("/git-for-windows/git/releases/tag/", StringComparison.Ordinal))
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open link" : "无法打开链接",
+                ViewModel.IsEnglish ? "The Git for Windows release URL is unavailable or invalid." : "Git for Windows 发布地址不可用或无效。",
+                IsError: true));
+            return;
+        }
+
+        if (!await Launcher.LaunchUriAsync(uri))
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open link" : "无法打开链接",
+                ViewModel.IsEnglish ? "Windows could not open the Git for Windows release page." : "Windows 未能打开 Git for Windows 发布页。",
+                IsError: true));
+        }
+    }
+
+    private async void OnSaveGitConfigurationClick(object sender, RoutedEventArgs e) =>
+        await ViewModel.SaveGitConfigurationAsync();
+
     private async void OnLanguageSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (sender is ComboBox { SelectedItem: LanguageOption option }
@@ -233,6 +363,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (notification.AutoDismiss)
+        {
+            await ShowTransientNotificationAsync(notification);
+            return;
+        }
+
         await _dialogGate.WaitAsync();
         try
         {
@@ -249,6 +385,38 @@ public sealed partial class MainWindow : Window
         finally
         {
             _dialogGate.Release();
+        }
+    }
+
+    private async Task ShowTransientNotificationAsync(UserNotification notification)
+    {
+        _transientNotificationCancellation?.Cancel();
+        _transientNotificationCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        _transientNotificationCancellation = cancellation;
+        TransientNotificationBar.Title = notification.Title;
+        TransientNotificationBar.Message = notification.Message;
+        TransientNotificationBar.Severity = notification.IsError
+            ? InfoBarSeverity.Error
+            : InfoBarSeverity.Success;
+        TransientNotificationBar.IsOpen = true;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2.5), cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer transient notification replaced this one.
+        }
+        finally
+        {
+            if (ReferenceEquals(_transientNotificationCancellation, cancellation))
+            {
+                TransientNotificationBar.IsOpen = false;
+                _transientNotificationCancellation = null;
+            }
+
+            cancellation.Dispose();
         }
     }
 
@@ -322,6 +490,7 @@ public sealed partial class MainWindow : Window
             });
         }
 
+        RootNavigation.MenuItems.Add(GitBashNavigationItem);
         RootNavigation.MenuItems.Add(RuntimeNavigationSeparator);
         RootNavigation.MenuItems.Add(TasksNavigationItem);
     }
@@ -332,6 +501,7 @@ public sealed partial class MainWindow : Window
         {
             "tasks" => ViewModel.TaskHistoryText,
             "settings" => ViewModel.SettingsText,
+            "git" => "Git",
             "runtime:java" => "Java",
             "runtime:python" => "Python",
             "runtime:redis" => "Redis",

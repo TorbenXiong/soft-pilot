@@ -2,17 +2,18 @@
 
 ## 1. 项目定位与当前范围
 
-SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.6`，V1 聚焦：
+SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.7`，V1 聚焦：
 
 - Node.js 官方 Windows x64 ZIP。
 - Eclipse Temurin HotSpot JDK Windows x64 ZIP。
 - CPython 官方 Python Install Manager。
 - Redis 官方版本目录与 `redis-windows/redis-windows` Windows x64 MSYS2 社区构建，仅用于本地开发。
+- Git for Windows 官方最新版 x64 PortableGit，采用单一受管副本，不进入多版本或终端默认版本模型。
 - 官方版本发现、多版本安装、终端默认版本切换、外部运行时只读发现和永久卸载；Redis 额外支持单实例启动、停止和状态检查。
 - Node.js 与 Eclipse Temurin 归档默认在官方源与清华 TUNA 镜像间智能选择；版本元数据和完整性信任链仍只使用官方来源。
 - WinUI 3 GUI、`spt` CLI、shim、单文件 EXE 发布和首次启动自迁移。
 
-除上述 Redis 本地开发单实例外，V1 不包含项目级版本绑定、自定义源、其他第三方镜像、数据库服务、Docker、AI CLI、普通软件和跨平台实现。Redis V1 不注册 Windows Service、不设置开机启动，也不支持多实例并行运行。不要在无明确需求时提前引入这些范围。
+除上述 Redis 本地开发单实例和 Git 便携工具外，V1 不包含项目级版本绑定、自定义源、其他第三方镜像、数据库服务、Docker、AI CLI、普通软件和跨平台实现。Redis V1 不注册 Windows Service、不设置开机启动，也不支持多实例并行运行。Git V1 只管理最新版便携副本，不修改用户 PATH、不接管外部 Git 安装，也不自动改写全局 `.gitconfig`。不要在无明确需求时提前引入这些范围。
 
 开始修改前按任务需要阅读：
 
@@ -56,6 +57,7 @@ Provider 只能使用当前范围内的官方元数据和官方发布资产。No
 - Java：Adoptium 官方 LTS 元数据和 Eclipse Temurin Windows x64 JDK；校验哈希和签名；归档可使用清华 TUNA 的 Adoptium 镜像。
 - Python：官方 Python Install Manager，并通过 `--target` 安装到 SoftPilot 工作区。
 - Redis：版本必须同时存在于 Redis 官方 GitHub Releases；归档固定来自 `redis-windows/redis-windows` 的 Windows x64 MSYS2 GitHub Release Asset，并校验 GitHub 提供的 SHA-256 digest。该社区构建仅用于本地开发，用户界面和文档不得描述为 Redis 官方 Windows 发行版。
+- Git：只使用 `git-for-windows/git` 官方最新稳定 Release 的 `PortableGit-*-64-bit.7z.exe`，必须校验 GitHub 提供的 SHA-256 digest，并在 staging 中解包和核对 `git --version` 后才可替换 `app\git` 唯一受管目录。
 
 必须遵守：
 
@@ -112,7 +114,7 @@ dotnet format SoftPilot.slnx --verify-no-changes --no-restore
 开发包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.6
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.7
 ```
 
 未提供证书指纹时生成的是未签名开发构建，不得描述为已签名发布版本。打包不等于首次启动；除非任务明确要求，不要自动运行生成的便携应用或修改用户环境。

@@ -8,6 +8,7 @@ using SoftPilot.Infrastructure.Runtime;
 using SoftPilot.Infrastructure.Security;
 using SoftPilot.Infrastructure.Shell;
 using SoftPilot.Infrastructure.State;
+using SoftPilot.Infrastructure.Tools;
 
 namespace SoftPilot.Infrastructure;
 
@@ -45,6 +46,7 @@ public static class DependencyInjection
         services.AddSingleton<IOperationCoordinator, OperationCoordinator>();
         services.AddSingleton<ICacheService, CacheService>();
         services.AddSingleton<IDoctorService, DoctorService>();
+        services.AddSingleton<IGitService, GitService>();
 
         services.AddSingleton<RuntimeCatalogCache>();
         services.AddSingleton<PythonInstallManagerProvisioner>();
@@ -100,6 +102,7 @@ public static class DependencyInjection
         }
 
         await services.GetRequiredService<IStateStore>().InitializeAsync(cancellationToken);
+        await services.GetRequiredService<ICacheService>().CleanExpiredAsync(cancellationToken);
         await services.GetRequiredService<GlobalRuntimeService>()
             .ReconcileShellIntegrationAsync(cancellationToken);
     }

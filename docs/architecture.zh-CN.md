@@ -18,7 +18,9 @@
 <SoftPilotRoot>\
 ├─ SoftPilot.exe
 └─ SoftPilotData\
-   ├─ app\<kind>\<version>\
+   ├─ app\
+   │  ├─ <kind>\<version>\
+   │  └─ git\
    ├─ current\<kind>
    ├─ tools\shims\
    ├─ data\
@@ -35,14 +37,16 @@
 - 首次启动校验所选本地 NTFS 路径，复制并校验 EXE 哈希，原子替换目标后重新启动，最后只删除已验证的源 EXE。
 - 启动时根据清单校验并按需原子部署内嵌 CLI 与 shim。
 - 运行时安装遵循 `cache → staging → 健康检查 → app → SQLite`；官方元数据、TLS、哈希、签名或健康检查失败都会终止事务。
+- 所有模块共用 `cache\downloads`；SoftPilot 每次启动时通过统一缓存服务删除超过 30 天的文件和空目录，模块卸载不单独清理缓存。`spt cache clean` 保留为立即清空入口。
+- Git 安装与升级遵循 `官方最新发布 → cache → SHA-256 校验 → staging → 版本健康检查 → app\git`；升级以可回滚方式替换唯一受管目录，卸载不会触碰统一下载缓存或其他 Git 安装。Git 页面仅在用户点击保存后，通过受管 Git 显式读写全局 `user.name` 与 `user.email`；卸载保留包括 `user.name`、`user.email` 在内的 Git 全局配置、SSH 密钥、凭据和仓库。
 - 卸载先把运行时移入 staging，删除状态后再删除文件；失败时恢复目录和状态。
 - GUI 与 CLI 的修改操作共用工作区跨进程锁。
 
-Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。Redis 版本必须存在于 Redis 官方发布目录中；Windows 归档来自 `redis-windows/redis-windows` GitHub Releases，并强制校验 GitHub Asset SHA-256 摘要。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
+Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。Redis 版本必须存在于 Redis 官方发布目录中；Windows 归档来自 `redis-windows/redis-windows` GitHub Releases，并强制校验 GitHub Asset SHA-256 摘要。Git 只接受 `git-for-windows/git` 官方最新 Release 的 x64 PortableGit 自解压归档，并强制校验 GitHub Asset SHA-256 摘要。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
 
 ## 下载来源
 
-Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。Python 始终使用官方来源。Redis 只使用固定的社区 Windows 归档源，每个版本都与 Redis 官方元数据交叉核对，不接受自定义源。
+Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。Python 始终使用官方来源。Redis 只使用固定的社区 Windows 归档源，每个版本都与 Redis 官方元数据交叉核对，不接受自定义源。Git 只使用官方来源，不提供来源或版本选择。
 
 ## Redis 服务
 

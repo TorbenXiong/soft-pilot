@@ -13,6 +13,7 @@ public interface IInstallationLayout
     string StagingDirectory { get; }
     string TrashDirectory { get; }
     string LogsDirectory { get; }
+    string GitDirectory { get; }
 
     string GetRuntimeDirectory(RuntimeKind kind, string version);
     string GetCurrentLink(RuntimeKind kind);

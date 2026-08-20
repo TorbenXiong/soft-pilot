@@ -83,6 +83,26 @@ public sealed class HttpDownloadServiceTests
     }
 
     [TestMethod]
+    public async Task DownloadAsync_WhenTlsRequestFailsTemporarily_RetriesWithoutWeakeningValidation()
+    {
+        using var sandbox = new TemporaryDirectory();
+        var content = "Git release asset"u8.ToArray();
+        var handler = new TransientNetworkFailureHandler(content, failureCount: 2);
+        using var client = new HttpClient(handler);
+        var service = new HttpDownloadService(client);
+        var destination = Path.Combine(sandbox.Path, "git.exe");
+
+        await service.DownloadAsync(
+            new Uri("https://github.com/git-for-windows/git/releases/download/version/git.exe"),
+            destination,
+            Convert.ToHexString(SHA256.HashData(content)));
+
+        Assert.AreEqual(3, handler.RequestCount);
+        CollectionAssert.AreEqual(content, await File.ReadAllBytesAsync(destination));
+        Assert.IsEmpty(Directory.EnumerateFiles(sandbox.Path, "*.partial"));
+    }
+
+    [TestMethod]
     public async Task DownloadAsync_WithMultipleSources_UsesFastestSourceByDefault()
     {
         using var sandbox = new TemporaryDirectory();
@@ -174,6 +194,30 @@ public sealed class HttpDownloadServiceTests
                 Content = new ByteArrayContent("runtime"u8.ToArray()),
                 RequestMessage = new HttpRequestMessage(HttpMethod.Get, finalAddress),
             });
+    }
+
+    private sealed class TransientNetworkFailureHandler(byte[] content, int failureCount) : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            if (RequestCount <= failureCount)
+            {
+                throw new HttpRequestException(
+                    "The SSL connection could not be established.",
+                    new System.Security.Authentication.AuthenticationException("Simulated TLS handshake failure."));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(content),
+                RequestMessage = request,
+            });
+        }
     }
 
     private sealed class SourceSelectionHandler(byte[] content) : HttpMessageHandler
