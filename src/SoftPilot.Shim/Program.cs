@@ -56,6 +56,8 @@ static ShimInvocation Resolve(string name, string root)
         "javac" => new(Path.Combine(current, "java", "bin", "javac.exe"), []),
         "python" or "python3" => new(Path.Combine(current, "python", "python.exe"), []),
         "pip" => new(Path.Combine(current, "python", "python.exe"), ["-m", "pip"]),
+        "redis-server" => new(Path.Combine(current, "redis", "redis-server.exe"), []),
+        "redis-cli" => new(Path.Combine(current, "redis", "redis-cli.exe"), []),
         _ => throw new InvalidOperationException($"未知 SoftPilot shim 名称：{name}"),
     };
 }

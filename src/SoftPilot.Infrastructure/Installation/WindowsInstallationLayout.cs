@@ -31,6 +31,12 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
     public string GetTrashDirectory(RuntimeKind kind, string version, DateTimeOffset deletedAt) =>
         Path.Combine(TrashDirectory, GetKindName(kind), $"{version}-{deletedAt:yyyyMMddHHmmssfff}");
 
+    public string GetRedisDataDirectory(string version) =>
+        Path.Combine(DataDirectory, "redis", version);
+
+    public string GetRedisLogPath(string version) =>
+        Path.Combine(LogsDirectory, "redis", version, "redis.log");
+
     public void EnsureWorkspace()
     {
         Directory.CreateDirectory(Root);
@@ -55,6 +61,7 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
         RuntimeKind.Node => "node",
         RuntimeKind.Java => "java",
         RuntimeKind.Python => "python",
+        RuntimeKind.Redis => "redis",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 }

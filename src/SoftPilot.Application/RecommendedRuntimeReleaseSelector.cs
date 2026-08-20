@@ -29,6 +29,7 @@ public static class RecommendedRuntimeReleaseSelector
                     2)
                 .Take(PythonReleaseLineLimit)
                 .ToArray(),
+            RuntimeKind.Redis => SelectLatestPerLine(candidates, 1),
             _ => [],
         };
     }

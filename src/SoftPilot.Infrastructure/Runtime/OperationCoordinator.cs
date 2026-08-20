@@ -6,6 +6,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
     private readonly IInstallationLayout _layout;
     private readonly IStateStore _stateStore;
     private readonly GlobalRuntimeService _globalRuntimeService;
+    private readonly IRedisServiceManager? _redisServices;
     private readonly WorkspaceOperationLock _workspaceLock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -13,13 +14,19 @@ public sealed class OperationCoordinator : IOperationCoordinator
         IEnumerable<IRuntimeProvider> providers,
         IInstallationLayout layout,
         IStateStore stateStore,
-        GlobalRuntimeService globalRuntimeService)
+        GlobalRuntimeService globalRuntimeService,
+        IRedisServiceManager? redisServices = null)
     {
         _providers = providers.ToDictionary(provider => provider.Kind);
         _layout = layout;
         _stateStore = stateStore;
         _globalRuntimeService = globalRuntimeService;
+        _redisServices = redisServices;
         _workspaceLock = new WorkspaceOperationLock(layout);
+        if (_providers.ContainsKey(RuntimeKind.Redis) && redisServices is null)
+        {
+            throw new ArgumentNullException(nameof(redisServices));
+        }
     }
 
     public Task InstallAsync(
@@ -131,9 +138,18 @@ public sealed class OperationCoordinator : IOperationCoordinator
             }
         });
 
-    public Task UninstallAsync(RuntimeTarget target, CancellationToken cancellationToken = default) =>
+    public Task UninstallAsync(
+        RuntimeTarget target,
+        RuntimeUninstallOptions? options = null,
+        CancellationToken cancellationToken = default) =>
         TrackAsync("uninstall", target, cancellationToken, async operationToken =>
         {
+            options ??= new RuntimeUninstallOptions();
+            if (options.DeleteData && target.Kind != RuntimeKind.Redis)
+            {
+                throw new SoftPilotException("删除数据选项仅适用于 Redis 运行时。");
+            }
+
             var installation = await _stateStore.FindInstallationAsync(target.Kind, target.Version, cancellationToken: operationToken)
                 ?? throw new RuntimeNotFoundException(target.Kind, target.Version);
             if (installation.IsCurrent)
@@ -141,22 +157,51 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 throw new SoftPilotException("当前全局版本不能卸载；请先切换版本或取消当前选择。");
             }
 
+            if (target.Kind == RuntimeKind.Redis && _redisServices is not null)
+            {
+                var service = await _redisServices.GetStatusAsync(operationToken);
+                if (service.IsRunning && string.Equals(service.Version, target.Version, StringComparison.Ordinal))
+                {
+                    throw new SoftPilotException("正在运行的 Redis 版本不能卸载；请先停止 Redis 服务。");
+                }
+            }
+
             var removalDirectory = Path.Combine(
                 _layout.StagingDirectory,
                 $"uninstall-{target.Kind.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}");
+            var movedDirectories = new List<(string Original, string Staged)>();
             Directory.CreateDirectory(_layout.StagingDirectory);
-            Directory.Move(installation.InstallPath, removalDirectory);
             try
             {
+                Directory.CreateDirectory(removalDirectory);
+                MoveForRemoval(
+                    installation.InstallPath,
+                    Path.Combine(removalDirectory, "runtime"),
+                    movedDirectories);
+                if (options.DeleteData)
+                {
+                    MoveForRemoval(
+                        _layout.GetRedisDataDirectory(target.Version),
+                        Path.Combine(removalDirectory, "data"),
+                        movedDirectories);
+                    MoveForRemoval(
+                        Path.GetDirectoryName(_layout.GetRedisLogPath(target.Version))!,
+                        Path.Combine(removalDirectory, "logs"),
+                        movedDirectories);
+                }
+
                 await _stateStore.DeleteInstallationAsync(target.Kind, target.Version, operationToken);
                 await DeleteDirectoryWithRetryAsync(removalDirectory, CancellationToken.None);
-            }
-            catch
-            {
-                if (Directory.Exists(removalDirectory) && !Directory.Exists(installation.InstallPath))
+                if (options.DeleteData)
                 {
-                    Directory.Move(removalDirectory, installation.InstallPath);
+                    TryDeleteEmptyDirectory(Path.GetDirectoryName(_layout.GetRedisDataDirectory(target.Version)));
+                    TryDeleteEmptyDirectory(Path.GetDirectoryName(Path.GetDirectoryName(
+                        _layout.GetRedisLogPath(target.Version))!));
                 }
+            }
+            catch (Exception operationException)
+            {
+                var rollbackFailures = RestoreMovedDirectories(movedDirectories).ToList();
 
                 if (await _stateStore.FindInstallationAsync(
                         target.Kind,
@@ -164,12 +209,72 @@ public sealed class OperationCoordinator : IOperationCoordinator
                         includeDeleted: true,
                         CancellationToken.None) is null)
                 {
-                    await _stateStore.UpsertInstallationAsync(installation, CancellationToken.None);
+                    try
+                    {
+                        await _stateStore.UpsertInstallationAsync(installation, CancellationToken.None);
+                    }
+                    catch (Exception stateException)
+                    {
+                        rollbackFailures.Add(stateException);
+                    }
+                }
+
+                if (rollbackFailures.Count > 0)
+                {
+                    throw new SoftPilotException(
+                        "卸载失败，且未能完整恢复运行时、数据、日志或安装状态。请保留 staging 内容并运行 spt doctor。",
+                        new AggregateException([operationException, .. rollbackFailures]));
                 }
 
                 throw;
             }
         });
+
+    private static void MoveForRemoval(
+        string original,
+        string staged,
+        ICollection<(string Original, string Staged)> movedDirectories)
+    {
+        if (!Directory.Exists(original))
+        {
+            return;
+        }
+
+        Directory.Move(original, staged);
+        movedDirectories.Add((original, staged));
+    }
+
+    private static IReadOnlyList<Exception> RestoreMovedDirectories(
+        IReadOnlyList<(string Original, string Staged)> movedDirectories)
+    {
+        var failures = new List<Exception>();
+        for (var index = movedDirectories.Count - 1; index >= 0; index--)
+        {
+            var (original, staged) = movedDirectories[index];
+            if (Directory.Exists(original))
+            {
+                continue;
+            }
+
+            if (!Directory.Exists(staged))
+            {
+                failures.Add(new DirectoryNotFoundException($"无法恢复目录，暂存内容不存在：{staged}"));
+                continue;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(original)!);
+                Directory.Move(staged, original);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        return failures;
+    }
 
     private async Task TrackAsync(
         string name,
@@ -262,12 +367,23 @@ public sealed class OperationCoordinator : IOperationCoordinator
 
     private static void TryDeleteEmptyRuntimeKindDirectory(string runtimeDirectory)
     {
-        var kindDirectory = Path.GetDirectoryName(runtimeDirectory);
-        if (kindDirectory is not null
-            && Directory.Exists(kindDirectory)
-            && !Directory.EnumerateFileSystemEntries(kindDirectory).Any())
+        TryDeleteEmptyDirectory(Path.GetDirectoryName(runtimeDirectory));
+    }
+
+    private static void TryDeleteEmptyDirectory(string? directory)
+    {
+        try
         {
-            Directory.Delete(kindDirectory);
+            if (directory is not null
+                && Directory.Exists(directory)
+                && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Empty parent cleanup is best-effort and must not turn a committed operation into a failure.
         }
     }
 

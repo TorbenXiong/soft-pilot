@@ -17,6 +17,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IOperationCoordinator _operations;
     private readonly IGlobalRuntimeService _global;
     private readonly IRuntimeModulePreferencesStore _modulePreferences;
+    private readonly IRedisServiceManager _redisServices;
     private IReadOnlyList<RuntimeRow> _allManagedRuntimes = [];
     private IReadOnlyList<RuntimeRow> _allExternalRuntimes = [];
     private readonly Dictionary<RuntimeKind, IReadOnlyList<RuntimeRelease>> _recommendedReleases = [];
@@ -24,6 +25,9 @@ public partial class MainViewModel : ObservableObject
     private readonly HashSet<RuntimeTarget> _installingTargets = [];
     private readonly SemaphoreSlim _modulePreferencesSaveGate = new(1, 1);
     private bool _modulePreferencesLoaded;
+    private bool _redisServiceStatusAvailable;
+    private string? _runningRedisVersion;
+    private string? _redisServiceProblem;
 
     public MainViewModel(
         IEnumerable<IExternalRuntimeDetector> detectors,
@@ -31,7 +35,8 @@ public partial class MainViewModel : ObservableObject
         IStateStore state,
         IOperationCoordinator operations,
         IGlobalRuntimeService global,
-        IRuntimeModulePreferencesStore modulePreferences)
+        IRuntimeModulePreferencesStore modulePreferences,
+        IRedisServiceManager redisServices)
     {
         _detectors = detectors.ToArray();
         _providers = providers.ToArray();
@@ -39,6 +44,7 @@ public partial class MainViewModel : ObservableObject
         _operations = operations;
         _global = global;
         _modulePreferences = modulePreferences;
+        _redisServices = redisServices;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
         InstallCommand = new AsyncRelayCommand(InstallAsync, CanInstall);
         UseSelectedCommand = new AsyncRelayCommand(UseSelectedAsync, CanUseSelected);
@@ -72,6 +78,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RuntimeDisplayName))]
     [NotifyPropertyChangedFor(nameof(RuntimeInstallDescription))]
+    [NotifyPropertyChangedFor(nameof(RedisServiceColumnWidth))]
+    [NotifyPropertyChangedFor(nameof(RedisServiceColumnVisibility))]
     public partial RuntimeKind SelectedRuntimeKind { get; private set; } = RuntimeKind.Node;
 
     [ObservableProperty]
@@ -83,6 +91,7 @@ public partial class MainViewModel : ObservableObject
     public bool NodeModuleEnabled => IsModuleEnabled(RuntimeKind.Node);
     public bool JavaModuleEnabled => IsModuleEnabled(RuntimeKind.Java);
     public bool PythonModuleEnabled => IsModuleEnabled(RuntimeKind.Python);
+    public bool RedisModuleEnabled => IsModuleEnabled(RuntimeKind.Redis);
 
     [ObservableProperty]
     public partial LanguageOption? SelectedLanguage { get; private set; }
@@ -121,6 +130,13 @@ public partial class MainViewModel : ObservableObject
     public Visibility NodeModuleVisibility => NodeModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility JavaModuleVisibility => JavaModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PythonModuleVisibility => PythonModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RedisModuleVisibility => RedisModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
+    public GridLength RedisServiceColumnWidth => SelectedRuntimeKind == RuntimeKind.Redis
+        ? new GridLength(110)
+        : new GridLength(0);
+    public Visibility RedisServiceColumnVisibility => SelectedRuntimeKind == RuntimeKind.Redis
+        ? Visibility.Visible
+        : Visibility.Collapsed;
     public bool IsEnglish => SelectedLanguage?.Code == "en-US";
     public string TaskHistoryText => T("任务历史", "Task history");
     public string SettingsText => T("设置", "Settings");
@@ -135,6 +151,7 @@ public partial class MainViewModel : ObservableObject
     public string EnvironmentHeaderText => T("终端默认版本", "Terminal default");
     public string ReleaseLineHeaderText => T("版本线", "Release line");
     public string IsInstalledHeaderText => T("是否安装", "Installed");
+    public string ServiceHeaderText => T("服务", "Service");
     public string OperationHeaderText => T("操作", "Action");
     public string TimeHeaderText => T("时间", "Time");
     public string StatusHeaderText => T("状态", "Status");
@@ -143,12 +160,15 @@ public partial class MainViewModel : ObservableObject
     public string ModulesText => T("模块", "Modules");
     public string ModuleAutoSaveText => T("更改会自动保存", "Changes are saved automatically");
     public string LanguageText => T("语言", "Language");
+    public string StartRedisText => T("启动", "Start");
+    public string StopRedisText => T("停止", "Stop");
 
     public string RuntimeDisplayName => SelectedRuntimeKind switch
     {
         RuntimeKind.Node => "Node.js",
         RuntimeKind.Java => "Java",
         RuntimeKind.Python => "Python",
+        RuntimeKind.Redis => "Redis",
         _ => SelectedRuntimeKind.ToString(),
     };
 
@@ -163,6 +183,9 @@ public partial class MainViewModel : ObservableObject
         RuntimeKind.Python => T(
             "Python 没有 LTS；这里推荐仍在近期支持范围内的稳定分支最新补丁。",
             "Python has no LTS releases; this lists the latest patch from each recently supported stable branch."),
+        RuntimeKind.Redis => T(
+            "版本来自 Redis 官方发布目录，Windows x64 归档由 redis-windows 社区项目构建，仅建议用于本地开发。",
+            "Versions are cross-checked with official Redis releases. Windows x64 archives are community builds from redis-windows and are intended for local development."),
         _ => T("从官方目录选择推荐版本。", "Select a recommended version from the official catalog."),
     };
 
@@ -188,6 +211,7 @@ public partial class MainViewModel : ObservableObject
     {
         var preferencesWarning = await LoadModulePreferencesAsync();
         await RefreshRuntimeDataAsync(includeExternal: false);
+        await RefreshRedisServiceStatusAsync();
         await LoadCachedRecommendedVersionsAsync();
         await RefreshTasksAsync();
         _ = RefreshStartupDataAsync(preferencesWarning);
@@ -202,6 +226,7 @@ public partial class MainViewModel : ObservableObject
             {
                 var preferencesWarning = await LoadModulePreferencesAsync();
                 await RefreshRuntimeDataAsync(includeExternal: false);
+                await RefreshRedisServiceStatusAsync();
                 var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: true);
                 await RefreshTasksAsync();
                 var warnings = remoteWarnings
@@ -448,30 +473,31 @@ public partial class MainViewModel : ObservableObject
     private Task UninstallSelectedAsync() =>
         UninstallRuntimeAsync(SelectedRuntime!.RuntimeKind, SelectedRuntime.Version);
 
-    public Task UninstallVersionAsync(RuntimeVersionRow row) =>
-        row.CanUninstall ? UninstallRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+    public Task UninstallVersionAsync(RuntimeVersionRow row, bool deleteData = false) =>
+        row.CanUninstall ? UninstallRuntimeAsync(row.RuntimeKind, row.Version, deleteData) : Task.CompletedTask;
 
-    public Task UninstallInstalledRuntimeAsync(InstalledRuntimeRow row) =>
-        row.CanUninstall ? UninstallRuntimeAsync(row.RuntimeKind, row.Version) : Task.CompletedTask;
+    public Task UninstallInstalledRuntimeAsync(InstalledRuntimeRow row, bool deleteData = false) =>
+        row.CanUninstall ? UninstallRuntimeAsync(row.RuntimeKind, row.Version, deleteData) : Task.CompletedTask;
 
-    private async Task UninstallRuntimeAsync(RuntimeKind kind, string version)
+    private async Task UninstallRuntimeAsync(RuntimeKind kind, string version, bool deleteData = false)
     {
         var target = new RuntimeTarget(kind, version);
+        ClearRuntimeFeedback(target);
         await RunBusyAsync(async () =>
         {
-            await _operations.UninstallAsync(target);
+            await _operations.UninstallAsync(target, new RuntimeUninstallOptions(deleteData));
             await RefreshCoreAsync();
         }, showSuccessOrFailureDialog: false,
-        onError: exception => SetRuntimeFeedback(target, new RuntimeOperationFeedback(
-            0,
-            T($"卸载失败：{exception.Message}", $"Uninstall failed: {exception.Message}"),
-            RuntimeFeedbackKind.Error,
-            false)));
+        onError: exception => NotifyUser(
+            T("卸载失败", "Uninstall failed"),
+            exception.Message,
+            isError: true));
     }
 
     private async Task RefreshCoreAsync()
     {
         await RefreshRuntimeDataAsync(includeExternal: false);
+        await RefreshRedisServiceStatusAsync();
         await RefreshTasksAsync();
         SelectedRuntime = null;
     }
@@ -628,6 +654,9 @@ public partial class MainViewModel : ObservableObject
                 RuntimeKind.Python => T(
                     "Python 没有 LTS；仅显示最新五个稳定分支，每条分支自动选择最新补丁。",
                     "Python has no LTS releases; this shows the five newest stable branches and selects the latest patch from each."),
+                RuntimeKind.Redis => T(
+                    "显示每个可验证 Redis 主版本线的最新稳定补丁；Windows 归档来自 redis-windows 社区构建并校验 GitHub SHA-256。",
+                    "Shows the latest stable patch for every verifiable Redis major line. Windows archives are redis-windows community builds verified with GitHub SHA-256 digests."),
                 _ => T("已从官方目录筛选推荐版本。", "Recommended versions were selected from the official catalog."),
             };
         ApplyVersionRows();
@@ -680,6 +709,7 @@ public partial class MainViewModel : ObservableObject
             RuntimeKind.Node => $"Node.js {line} LTS",
             RuntimeKind.Java => $"Temurin JDK {line} LTS",
             RuntimeKind.Python => T($"Python {line} 稳定版", $"Python {line} stable"),
+            RuntimeKind.Redis => T($"Redis {line} 稳定版", $"Redis {line} stable"),
             _ => GetRuntimeDisplayName(SelectedRuntimeKind),
         };
         var state = managed switch
@@ -708,7 +738,7 @@ public partial class MainViewModel : ObservableObject
     private InstalledRuntimeRow CreateInstalledRuntimeRow(RuntimeRow item, bool isManaged)
     {
         var feedback = GetRuntimeFeedback(new RuntimeTarget(item.RuntimeKind, item.Version));
-        return new InstalledRuntimeRow(
+        var row = new InstalledRuntimeRow(
             item.RuntimeKind,
             item.Version,
             item.Path,
@@ -721,6 +751,8 @@ public partial class MainViewModel : ObservableObject
             T("卸载", "Uninstall"),
             T("复制路径", "Copy path"),
             feedback);
+        UpdateRedisServiceRow(row);
+        return row;
     }
 
     private RuntimeVersionOption CreateVersionOption(RuntimeRelease release)
@@ -734,6 +766,7 @@ public partial class MainViewModel : ObservableObject
             RuntimeKind.Node => $"Node.js {line} LTS — {release.Version}",
             RuntimeKind.Java => $"JDK {line} LTS — {release.Version}",
             RuntimeKind.Python => T($"Python {line} 稳定版 — {release.Version}", $"Python {line} stable — {release.Version}"),
+            RuntimeKind.Redis => T($"Redis {line} 稳定版 — {release.Version}", $"Redis {line} stable — {release.Version}"),
             _ => release.Version,
         };
         if (managed is not null)
@@ -756,6 +789,7 @@ public partial class MainViewModel : ObservableObject
 
         IsBusy = true;
         NotifyCommands();
+        UpdateRedisServiceRows();
         try
         {
             await action();
@@ -781,6 +815,7 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
             NotifyCommands();
+            UpdateRedisServiceRows();
         }
     }
 
@@ -788,7 +823,100 @@ public partial class MainViewModel : ObservableObject
     private bool CanInstall() => !IsBusy && SelectedRecommendedVersion is { IsManaged: false };
     private bool CanUseSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
     private bool CanUninstallSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
-    partial void OnSelectedRuntimeKindChanged(RuntimeKind value) => ApplyRuntimeFilter();
+
+    public async Task StartInstalledRedisAsync(InstalledRuntimeRow row)
+    {
+        if (IsBusy || !row.CanStartRedisService)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            try
+            {
+                await _redisServices.StartAsync(row.Version);
+            }
+            finally
+            {
+                await RefreshRedisServiceStatusAsync();
+            }
+        }, showSuccessOrFailureDialog: false,
+        onError: exception => NotifyUser(
+            T("Redis 启动失败", "Unable to start Redis"),
+            exception.Message,
+            isError: true));
+    }
+
+    public async Task StopInstalledRedisAsync(InstalledRuntimeRow row)
+    {
+        if (IsBusy || !row.CanStopRedisService)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            try
+            {
+                await _redisServices.StopAsync();
+            }
+            finally
+            {
+                await RefreshRedisServiceStatusAsync();
+            }
+        }, showSuccessOrFailureDialog: false,
+        onError: exception => NotifyUser(
+            T("Redis 停止失败", "Unable to stop Redis"),
+            exception.Message,
+            isError: true));
+    }
+
+    private async Task RefreshRedisServiceStatusAsync()
+    {
+        try
+        {
+            var status = await _redisServices.GetStatusAsync();
+            _redisServiceStatusAvailable = true;
+            _runningRedisVersion = status.IsRunning ? status.Version : null;
+            _redisServiceProblem = status.Problem;
+        }
+        catch (Exception exception)
+        {
+            _redisServiceStatusAvailable = false;
+            _runningRedisVersion = null;
+            _redisServiceProblem = exception.Message;
+        }
+
+        UpdateRedisServiceRows();
+    }
+
+    private void UpdateRedisServiceRows()
+    {
+        foreach (var row in InstalledRuntimes)
+        {
+            UpdateRedisServiceRow(row);
+        }
+    }
+
+    private void UpdateRedisServiceRow(InstalledRuntimeRow row)
+    {
+        row.UpdateRedisServiceState(
+            _redisServiceStatusAvailable,
+            string.Equals(row.Version, _runningRedisVersion, StringComparison.OrdinalIgnoreCase),
+            IsBusy,
+            _redisServiceProblem,
+            StartRedisText,
+            StopRedisText,
+            row.IsManaged
+                ? T("Redis 服务状态不可用", "Redis service status unavailable")
+                : T("外部 Redis 仅支持只读发现", "External Redis installations are read-only"));
+    }
+
+    partial void OnSelectedRuntimeKindChanged(RuntimeKind value)
+    {
+        ApplyRuntimeFilter();
+    }
     partial void OnSelectedRecommendedVersionChanged(RuntimeVersionOption? value) => InstallCommand.NotifyCanExecuteChanged();
     partial void OnSelectedRuntimeChanged(RuntimeRow? value) => NotifyCommands();
 
@@ -797,6 +925,7 @@ public partial class MainViewModel : ObservableObject
         RuntimeKind.Node => "Node.js",
         RuntimeKind.Java => "Java",
         RuntimeKind.Python => "Python",
+        RuntimeKind.Redis => "Redis",
         _ => kind.ToString(),
     };
 
@@ -868,6 +997,9 @@ public partial class MainViewModel : ObservableObject
             RuntimeKind.Python => T(
                 "将 current\\python 指向此版本，使 SoftPilot 的 Python 命令入口使用它；不会设置 PYTHONHOME，也不会重新安装或删除版本。",
                 "Point current\\python to this version so SoftPilot's Python command entry uses it. PYTHONHOME is not set, and no version is reinstalled or removed."),
+            RuntimeKind.Redis => T(
+                "将 current\\redis 指向此版本，使 redis-server 和 redis-cli 命令入口使用它；服务启动和停止在已安装版本的“服务”列中单独管理。",
+                "Point current\\redis to this version for the redis-server and redis-cli command entries. Start and stop the service separately from the Service column in Installed versions."),
             _ => T(
                 "将此版本设为 SoftPilot 当前使用的版本；不会重新安装或删除版本。",
                 "Set this as the version currently used by SoftPilot. No version is reinstalled or removed."),
@@ -889,9 +1021,10 @@ public partial class MainViewModel : ObservableObject
             nameof(CatalogLoadingText),
             nameof(VersionHeaderText), nameof(PathHeaderText),
             nameof(EnvironmentHeaderText), nameof(ReleaseLineHeaderText), nameof(IsInstalledHeaderText),
-            nameof(OperationHeaderText), nameof(TimeHeaderText),
+            nameof(ServiceHeaderText), nameof(OperationHeaderText), nameof(TimeHeaderText),
             nameof(StatusHeaderText), nameof(TaskTypeHeaderText), nameof(TargetHeaderText),
             nameof(ModulesText), nameof(ModuleAutoSaveText), nameof(LanguageText),
+            nameof(StartRedisText), nameof(StopRedisText),
             nameof(RuntimeInstallDescription),
         ];
         foreach (var property in properties)
@@ -1008,7 +1141,8 @@ public partial class MainViewModel : ObservableObject
         IsModuleEnabled(RuntimeKind.Java),
         IsModuleEnabled(RuntimeKind.Python),
         language ?? SelectedLanguage?.Code ?? "en-US",
-        GetOrderedModuleKinds());
+        GetOrderedModuleKinds(),
+        IsModuleEnabled(RuntimeKind.Redis));
 
     private void ReplaceModuleSettings(RuntimeModulePreferences preferences)
     {
@@ -1037,6 +1171,7 @@ public partial class MainViewModel : ObservableObject
         RuntimeKind.Node => "ms-appx:///Assets/RuntimeIcons/nodejs.svg",
         RuntimeKind.Java => "ms-appx:///Assets/RuntimeIcons/java.svg",
         RuntimeKind.Python => "ms-appx:///Assets/RuntimeIcons/python.svg",
+        RuntimeKind.Redis => "ms-appx:///Assets/RuntimeIcons/redis.svg",
         _ => string.Empty,
     };
 
@@ -1093,9 +1228,11 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(NodeModuleEnabled));
         OnPropertyChanged(nameof(JavaModuleEnabled));
         OnPropertyChanged(nameof(PythonModuleEnabled));
+        OnPropertyChanged(nameof(RedisModuleEnabled));
         OnPropertyChanged(nameof(NodeModuleVisibility));
         OnPropertyChanged(nameof(JavaModuleVisibility));
         OnPropertyChanged(nameof(PythonModuleVisibility));
+        OnPropertyChanged(nameof(RedisModuleVisibility));
     }
 
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> values)
@@ -1200,6 +1337,13 @@ public sealed class InstalledRuntimeRow : ObservableObject
 {
     private RuntimeOperationFeedback? _feedback;
     private string _pathStatusText = string.Empty;
+    private bool _redisServiceStatusAvailable;
+    private bool _isRedisServiceRunning;
+    private bool _isRedisServiceBusy;
+    private string? _redisServiceProblem;
+    private string _startRedisText = "Start";
+    private string _stopRedisText = "Stop";
+    private string _redisServiceUnavailableText = "Redis service status unavailable";
 
     public InstalledRuntimeRow(
         RuntimeKind runtimeKind,
@@ -1234,6 +1378,39 @@ public sealed class InstalledRuntimeRow : ObservableObject
     public string EnvironmentActionToolTip { get; }
     public string UninstallText { get; }
     public string CopyPathToolTip { get; }
+    public GridLength RedisServiceColumnWidth => RuntimeKind == RuntimeKind.Redis
+        ? new GridLength(110)
+        : new GridLength(0);
+    public Visibility RedisServiceColumnVisibility => RuntimeKind == RuntimeKind.Redis
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public bool CanStartRedisService => RuntimeKind == RuntimeKind.Redis
+        && IsManaged
+        && _redisServiceStatusAvailable
+        && !_isRedisServiceRunning
+        && !_isRedisServiceBusy;
+    public bool CanStopRedisService => RuntimeKind == RuntimeKind.Redis
+        && IsManaged
+        && _redisServiceStatusAvailable
+        && _isRedisServiceRunning
+        && !_isRedisServiceBusy;
+    public Visibility StartRedisServiceVisibility => CanStartRedisService ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility StopRedisServiceVisibility => CanStopRedisService ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RedisServiceProgressVisibility => RuntimeKind == RuntimeKind.Redis && IsManaged && _isRedisServiceBusy
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility RedisServiceUnavailableVisibility => RuntimeKind == RuntimeKind.Redis
+        && (!IsManaged || !_redisServiceStatusAvailable)
+        && !_isRedisServiceBusy
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public string StartRedisToolTip => _redisServiceProblem is null
+        ? $"{_startRedisText} Redis {Version}"
+        : $"{_startRedisText} Redis {Version} · {_redisServiceProblem}";
+    public string StopRedisToolTip => $"{_stopRedisText} Redis {Version}";
+    public string RedisServiceUnavailableToolTip => IsManaged && !string.IsNullOrWhiteSpace(_redisServiceProblem)
+        ? $"{_redisServiceUnavailableText}: {_redisServiceProblem}"
+        : _redisServiceUnavailableText;
     public bool CanToggleEnvironment => IsManaged;
     public bool CanUninstall => IsManaged && !IsCurrent;
     public Visibility SetEnvironmentVisibility => IsManaged && !IsCurrent ? Visibility.Visible : Visibility.Collapsed;
@@ -1268,6 +1445,33 @@ public sealed class InstalledRuntimeRow : ObservableObject
         _pathStatusText = text;
         OnPropertyChanged(nameof(PathStatusText));
         OnPropertyChanged(nameof(PathStatusVisibility));
+    }
+
+    public void UpdateRedisServiceState(
+        bool statusAvailable,
+        bool isRunning,
+        bool isBusy,
+        string? problem,
+        string startText,
+        string stopText,
+        string unavailableText)
+    {
+        _redisServiceStatusAvailable = statusAvailable;
+        _isRedisServiceRunning = isRunning;
+        _isRedisServiceBusy = isBusy;
+        _redisServiceProblem = problem;
+        _startRedisText = startText;
+        _stopRedisText = stopText;
+        _redisServiceUnavailableText = unavailableText;
+        OnPropertyChanged(nameof(CanStartRedisService));
+        OnPropertyChanged(nameof(CanStopRedisService));
+        OnPropertyChanged(nameof(StartRedisServiceVisibility));
+        OnPropertyChanged(nameof(StopRedisServiceVisibility));
+        OnPropertyChanged(nameof(RedisServiceProgressVisibility));
+        OnPropertyChanged(nameof(RedisServiceUnavailableVisibility));
+        OnPropertyChanged(nameof(StartRedisToolTip));
+        OnPropertyChanged(nameof(StopRedisToolTip));
+        OnPropertyChanged(nameof(RedisServiceUnavailableToolTip));
     }
 }
 

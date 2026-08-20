@@ -5,4 +5,5 @@ public enum RuntimeKind
     Node,
     Java,
     Python,
+    Redis,
 }

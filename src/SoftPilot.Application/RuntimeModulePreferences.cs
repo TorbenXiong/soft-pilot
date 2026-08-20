@@ -5,13 +5,15 @@ public sealed record RuntimeModulePreferences(
     bool JavaEnabled,
     bool PythonEnabled,
     string Language = "en-US",
-    IReadOnlyList<RuntimeKind>? ModuleOrder = null)
+    IReadOnlyList<RuntimeKind>? ModuleOrder = null,
+    bool RedisEnabled = true)
 {
     private static readonly RuntimeKind[] DefaultOrder =
     [
         RuntimeKind.Node,
         RuntimeKind.Java,
         RuntimeKind.Python,
+        RuntimeKind.Redis,
     ];
 
     public static RuntimeModulePreferences Default { get; } = new(
@@ -26,6 +28,7 @@ public sealed record RuntimeModulePreferences(
         RuntimeKind.Node => NodeEnabled,
         RuntimeKind.Java => JavaEnabled,
         RuntimeKind.Python => PythonEnabled,
+        RuntimeKind.Redis => RedisEnabled,
         _ => false,
     };
 

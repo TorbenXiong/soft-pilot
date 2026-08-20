@@ -37,6 +37,8 @@
                 <Setter Property="MinHeight" Value="0" />
             </Style>
             <SolidColorBrush x:Key="SoftPilotEnvironmentActiveBrush" Color="#16A34A" />
+            <SolidColorBrush x:Key="RedisStartBrush" Color="#16A34A" />
+            <SolidColorBrush x:Key="RedisStopBrush" Color="#C50F1F" />
             <Style x:Key="EnvironmentCheckAvailableStyle" TargetType="Button">
                 <Setter Property="Width" Value="44" />
                 <Setter Property="Height" Value="44" />
@@ -253,6 +255,52 @@
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
             </Style>
+            <Style x:Key="RedisServiceButtonStyle" TargetType="controls:StableCursorButton">
+                <Setter Property="Width" Value="44" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="controls:StableCursorButton">
+                            <Grid x:Name="ButtonRoot">
+                                <controls:StableCursorContentPresenter
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualStateGroup.Transitions>
+                                            <VisualTransition GeneratedDuration="0:0:0.12" />
+                                        </VisualStateGroup.Transitions>
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="ButtonRoot.Opacity" Value="0.82" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="ButtonRoot.Opacity" Value="0.65" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="ButtonRoot.Opacity" Value="0.35" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <Style x:Key="ModuleCardItemStyle" TargetType="GridViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -280,6 +328,13 @@
                                 AutomationProperties.Name="Python module">
                 <NavigationViewItem.Icon>
                     <ImageIcon Source="Assets/RuntimeIcons/python.svg" Width="20" Height="20" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem x:Name="RedisNavigationItem" Content="Redis" Tag="runtime:redis"
+                                Visibility="{x:Bind ViewModel.RedisModuleVisibility, Mode=OneWay}"
+                                AutomationProperties.Name="Redis module">
+                <NavigationViewItem.Icon>
+                    <ImageIcon Source="Assets/RuntimeIcons/redis.svg" Width="20" Height="20" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
             <NavigationViewItemSeparator x:Name="RuntimeNavigationSeparator" />
@@ -362,6 +417,7 @@
                                                                 <ColumnDefinition Width="180" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="120" />
+                                                                <ColumnDefinition Width="{x:Bind ViewModel.RedisServiceColumnWidth, Mode=OneWay}" />
                                                                 <ColumnDefinition Width="120" />
                                                             </Grid.ColumnDefinitions>
                                                             <TextBlock Text="{x:Bind ViewModel.VersionHeaderText, Mode=OneWay}"
@@ -371,7 +427,11 @@
                                                             <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.EnvironmentHeaderText, Mode=OneWay}"
                                                                        Style="{StaticResource RuntimeTableHeaderTextStyle}"
                                                                        HorizontalAlignment="Center" />
-                                                            <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
+                                                            <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.ServiceHeaderText, Mode=OneWay}"
+                                                                       Visibility="{x:Bind ViewModel.RedisServiceColumnVisibility, Mode=OneWay}"
+                                                                       Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                                       HorizontalAlignment="Center" />
+                                                            <TextBlock Grid.Column="4" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
                                                                        Style="{StaticResource RuntimeTableHeaderTextStyle}"
                                                                        HorizontalAlignment="Center" />
                                                         </Grid>
@@ -386,6 +446,7 @@
                                                                     <ColumnDefinition Width="180" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="120" />
+                                                                    <ColumnDefinition Width="{Binding RedisServiceColumnWidth}" />
                                                                     <ColumnDefinition Width="120" />
                                                                 </Grid.ColumnDefinitions>
                                                                 <TextBlock Text="{Binding Version}"
@@ -420,16 +481,16 @@
                                                                 <StackPanel Grid.Column="2" HorizontalAlignment="Center"
                                                                             VerticalAlignment="Center" Spacing="4">
                                                                     <Grid HorizontalAlignment="Center">
-                                                                        <Button Style="{StaticResource EnvironmentCheckAvailableStyle}"
-                                                                                Visibility="{Binding SetEnvironmentVisibility}"
-                                                                                Click="OnInstalledEnvironmentClick"
-                                                                                ToolTipService.ToolTip="{Binding EnvironmentActionToolTip}"
-                                                                                AutomationProperties.Name="{Binding EnvironmentActionName}" />
-                                                                        <Button Style="{StaticResource EnvironmentCheckActiveStyle}"
-                                                                                Visibility="{Binding ClearEnvironmentVisibility}"
-                                                                                Click="OnInstalledEnvironmentClick"
-                                                                                ToolTipService.ToolTip="{Binding EnvironmentActionToolTip}"
-                                                                                AutomationProperties.Name="{Binding EnvironmentActionName}" />
+                                                                        <controls:StableCursorButton Style="{StaticResource EnvironmentCheckAvailableStyle}"
+                                                                                                     Visibility="{Binding SetEnvironmentVisibility}"
+                                                                                                     Click="OnInstalledEnvironmentClick"
+                                                                                                     ToolTipService.ToolTip="{Binding EnvironmentActionToolTip}"
+                                                                                                     AutomationProperties.Name="{Binding EnvironmentActionName}" />
+                                                                        <controls:StableCursorButton Style="{StaticResource EnvironmentCheckActiveStyle}"
+                                                                                                     Visibility="{Binding ClearEnvironmentVisibility}"
+                                                                                                     Click="OnInstalledEnvironmentClick"
+                                                                                                     ToolTipService.ToolTip="{Binding EnvironmentActionToolTip}"
+                                                                                                     AutomationProperties.Name="{Binding EnvironmentActionName}" />
                                                                     </Grid>
                                                                     <TextBlock Text="{Binding OperationStatusText}"
                                                                                Visibility="{Binding EnvironmentFeedbackVisibility}"
@@ -437,7 +498,35 @@
                                                                                FontSize="13" TextWrapping="Wrap"
                                                                                TextAlignment="Center" HorizontalAlignment="Center" />
                                                                 </StackPanel>
-                                                                <StackPanel Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                <Grid Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                      Visibility="{Binding RedisServiceColumnVisibility}">
+                                                                    <controls:StableCursorButton Style="{StaticResource RedisServiceButtonStyle}"
+                                                                                                 Visibility="{Binding StartRedisServiceVisibility}"
+                                                                                                 Click="OnStartInstalledRedisClick"
+                                                                                                 ToolTipService.ToolTip="{Binding StartRedisToolTip}"
+                                                                                                 AutomationProperties.Name="{Binding StartRedisToolTip}">
+                                                                        <Path Width="29" Height="32"
+                                                                              Data="M 2,1 L 28,16 L 2,31 Z"
+                                                                              Stretch="Fill"
+                                                                              Fill="{StaticResource RedisStartBrush}" />
+                                                                    </controls:StableCursorButton>
+                                                                    <controls:StableCursorButton Style="{StaticResource RedisServiceButtonStyle}"
+                                                                                                 Visibility="{Binding StopRedisServiceVisibility}"
+                                                                                                 Click="OnStopInstalledRedisClick"
+                                                                                                 ToolTipService.ToolTip="{Binding StopRedisToolTip}"
+                                                                                                 AutomationProperties.Name="{Binding StopRedisToolTip}">
+                                                                        <Grid Width="34" Height="34">
+                                                                            <Ellipse Fill="{StaticResource RedisStopBrush}" />
+                                                                            <FontIcon Glyph="&#xE7E8;" FontSize="22" Foreground="White" />
+                                                                        </Grid>
+                                                                    </controls:StableCursorButton>
+                                                                    <ProgressRing Width="22" Height="22" IsActive="True"
+                                                                                  Visibility="{Binding RedisServiceProgressVisibility}" />
+                                                                    <TextBlock Text="—" Foreground="{ThemeResource SoftPilotSubtleText}"
+                                                                               Visibility="{Binding RedisServiceUnavailableVisibility}"
+                                                                               ToolTipService.ToolTip="{Binding RedisServiceUnavailableToolTip}" />
+                                                                </Grid>
+                                                                <StackPanel Grid.Column="4" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                                     <controls:StableHyperlinkButton Content="{Binding UninstallText}"
                                                                                                     Style="{StaticResource RuntimeOperationButtonStyle}"
                                                                                                     Visibility="{Binding UninstallVisibility}"

@@ -21,6 +21,8 @@ public sealed class PortableToolsProvisionerTests
         Assert.AreEqual("cli", File.ReadAllText(Path.Combine(tools, "shims", "spt.exe")));
         Assert.AreEqual("shim", File.ReadAllText(Path.Combine(tools, "shims", "node.exe")));
         Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "python3.exe")));
+        Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "redis-server.exe")));
+        Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "redis-cli.exe")));
     }
 
     [TestMethod]

@@ -11,6 +11,14 @@ public sealed class StableHyperlinkButton : HyperlinkButton
     }
 }
 
+public sealed class StableCursorButton : Button
+{
+    public StableCursorButton()
+    {
+        ProtectedCursor = StableCursorResources.Hand;
+    }
+}
+
 public sealed class StableCursorContentPresenter : ContentPresenter
 {
     public StableCursorContentPresenter()

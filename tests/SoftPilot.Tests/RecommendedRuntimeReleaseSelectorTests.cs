@@ -69,6 +69,31 @@ public sealed class RecommendedRuntimeReleaseSelectorTests
             selected.Select(release => release.Version).ToArray());
     }
 
+    [TestMethod]
+    public void Select_Redis_ReturnsLatestPatchForEveryAvailableMajorLine()
+    {
+        var releases = new[]
+        {
+            Release(RuntimeKind.Redis, "8.10.0"),
+            Release(RuntimeKind.Redis, "8.10.1"),
+            Release(RuntimeKind.Redis, "8.8.2"),
+            Release(RuntimeKind.Redis, "8.6.6"),
+            Release(RuntimeKind.Redis, "8.4.6"),
+            Release(RuntimeKind.Redis, "8.2.9"),
+            Release(RuntimeKind.Redis, "8.0.6"),
+            Release(RuntimeKind.Redis, "7.4.11"),
+            Release(RuntimeKind.Redis, "7.2.16"),
+            Release(RuntimeKind.Redis, "6.2.24"),
+            Release(RuntimeKind.Redis, "5.0.14"),
+        };
+
+        var selected = RecommendedRuntimeReleaseSelector.Select(RuntimeKind.Redis, releases);
+
+        CollectionAssert.AreEqual(
+            new[] { "8.10.1", "7.4.11", "6.2.24", "5.0.14" },
+            selected.Select(release => release.Version).ToArray());
+    }
+
     private static RuntimeRelease Release(RuntimeKind kind, string version, bool isLts = false) => new(
         kind,
         version,

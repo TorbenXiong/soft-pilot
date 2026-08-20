@@ -20,9 +20,10 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
         Assert.IsTrue(preferences.NodeEnabled);
         Assert.IsTrue(preferences.JavaEnabled);
         Assert.IsTrue(preferences.PythonEnabled);
+        Assert.IsTrue(preferences.RedisEnabled);
         Assert.AreEqual("en-US", preferences.Language);
         CollectionAssert.AreEqual(
-            new[] { RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Python },
+            new[] { RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Python, RuntimeKind.Redis },
             preferences.GetModuleOrder().ToArray());
     }
 
@@ -32,13 +33,40 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
         using var temporary = new TemporaryDirectory();
         var layout = new WindowsInstallationLayout(temporary.Path);
         var store = new JsonRuntimeModulePreferencesStore(layout);
-        var expectedOrder = new[] { RuntimeKind.Python, RuntimeKind.Node, RuntimeKind.Java };
+        var expectedOrder = new[] { RuntimeKind.Python, RuntimeKind.Redis, RuntimeKind.Node, RuntimeKind.Java };
         var expected = new RuntimeModulePreferences(true, true, false, "zh-CN", expectedOrder);
 
         await store.SaveAsync(expected);
         var actual = await store.LoadAsync();
 
         CollectionAssert.AreEqual(expectedOrder, actual.GetModuleOrder().ToArray());
+    }
+
+    [TestMethod]
+    public async Task LoadAsync_LegacyPreferencesEnableRedisAndAppendItToOrder()
+    {
+        using var temporary = new TemporaryDirectory();
+        var layout = new WindowsInstallationLayout(temporary.Path);
+        Directory.CreateDirectory(layout.DataDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(layout.DataDirectory, "ui-preferences.json"),
+            """
+            {
+              "nodeEnabled": true,
+              "javaEnabled": false,
+              "pythonEnabled": true,
+              "language": "zh-CN",
+              "moduleOrder": [2, 0, 1]
+            }
+            """);
+        var store = new JsonRuntimeModulePreferencesStore(layout);
+
+        var preferences = await store.LoadAsync();
+
+        Assert.IsTrue(preferences.RedisEnabled);
+        CollectionAssert.AreEqual(
+            new[] { RuntimeKind.Python, RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Redis },
+            preferences.GetModuleOrder().ToArray());
     }
 
     [TestMethod]
@@ -51,7 +79,7 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
             ModuleOrder: new[] { RuntimeKind.Python, RuntimeKind.Python });
 
         CollectionAssert.AreEqual(
-            new[] { RuntimeKind.Python, RuntimeKind.Node, RuntimeKind.Java },
+            new[] { RuntimeKind.Python, RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Redis },
             preferences.GetModuleOrder().ToArray());
     }
 

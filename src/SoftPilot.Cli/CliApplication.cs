@@ -21,6 +21,7 @@ public sealed class CliApplication
     private readonly IShellIntegrationService _shell;
     private readonly IDoctorService _doctor;
     private readonly ICacheService _cache;
+    private readonly IRedisServiceManager _redis;
 
     public CliApplication(
         IEnumerable<IRuntimeProvider> providers,
@@ -30,7 +31,8 @@ public sealed class CliApplication
         IGlobalRuntimeService global,
         IShellIntegrationService shell,
         IDoctorService doctor,
-        ICacheService cache)
+        ICacheService cache,
+        IRedisServiceManager redis)
     {
         _providers = providers.ToDictionary(provider => provider.Kind);
         _detectors = detectors.ToArray();
@@ -40,6 +42,7 @@ public sealed class CliApplication
         _shell = shell;
         _doctor = doctor;
         _cache = cache;
+        _redis = redis;
     }
 
     public Task<int> RunAsync(string[] args)
@@ -50,7 +53,7 @@ public sealed class CliApplication
 
     private RootCommand BuildRootCommand()
     {
-        var root = new RootCommand("SoftPilot Windows 开发运行时管理器");
+        var root = new RootCommand("SoftPilot Windows 开发运行时与本地服务管理器");
         root.Subcommands.Add(BuildRuntimeCommand());
         root.Subcommands.Add(BuildUseCommand());
         root.Subcommands.Add(BuildCurrentCommand());
@@ -58,6 +61,7 @@ public sealed class CliApplication
         root.Subcommands.Add(BuildDoctorCommand());
         root.Subcommands.Add(BuildTaskCommand());
         root.Subcommands.Add(BuildCacheCommand());
+        root.Subcommands.Add(BuildRedisCommand());
         return root;
     }
 
@@ -67,8 +71,33 @@ public sealed class CliApplication
         runtime.Subcommands.Add(BuildAvailableCommand());
         runtime.Subcommands.Add(BuildRuntimeListCommand());
         runtime.Subcommands.Add(BuildInstallCommand());
-        runtime.Subcommands.Add(BuildTargetCommand("uninstall", "卸载并删除已安装版本", _operations.UninstallAsync));
+        runtime.Subcommands.Add(BuildUninstallCommand());
         return runtime;
+    }
+
+    private Command BuildUninstallCommand()
+    {
+        var targetArgument = TargetArgument();
+        var deleteDataOption = new Option<bool>("--delete-data")
+        {
+            Description = "卸载 Redis 时同时永久删除该版本的数据和日志",
+        };
+        var command = new Command("uninstall", "卸载并删除已安装版本")
+        {
+            targetArgument,
+            deleteDataOption,
+        };
+        command.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        {
+            var target = ParseTarget(parseResult.GetRequiredValue(targetArgument));
+            var deleteData = parseResult.GetValue(deleteDataOption);
+            await _operations.UninstallAsync(
+                target,
+                new RuntimeUninstallOptions(deleteData),
+                cancellationToken);
+            Console.WriteLine($"uninstall {target} 完成。" + (deleteData ? " Redis 数据和日志已删除。" : string.Empty));
+        }));
+        return command;
     }
 
     private Command BuildInstallCommand()
@@ -89,7 +118,7 @@ public sealed class CliApplication
     {
         var kindArgument = new Argument<string?>("kind")
         {
-            Description = "node、java 或 python；省略时查询全部",
+            Description = "node、java、python 或 redis；省略时查询全部",
             Arity = ArgumentArity.ZeroOrOne,
         };
         var jsonOption = JsonOption();
@@ -263,20 +292,48 @@ public sealed class CliApplication
         return cache;
     }
 
-    private static Command BuildTargetCommand(
-        string name,
-        string description,
-        Func<RuntimeTarget, CancellationToken, Task> action)
+    private Command BuildRedisCommand()
     {
-        var targetArgument = TargetArgument();
-        var command = new Command(name, description) { targetArgument };
-        command.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        var redis = new Command("redis", "管理本地 Redis 服务");
+
+        var statusJson = JsonOption();
+        var status = new Command("status", "显示 Redis 服务状态") { statusJson };
+        status.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
         {
-            var target = ParseTarget(parseResult.GetRequiredValue(targetArgument));
-            await action(target, cancellationToken);
-            Console.WriteLine($"{name} {target} 完成。");
+            var value = await _redis.GetStatusAsync(cancellationToken);
+            Write(value, parseResult.GetValue(statusJson), item => item.IsRunning
+                ? $"running redis@{item.Version} pid={item.ProcessId} config={item.ConfigPath} data={item.DataPath} log={item.LogPath}"
+                : $"stopped{(item.Problem is null ? string.Empty : $" problem={item.Problem}")}");
         }));
-        return command;
+        redis.Subcommands.Add(status);
+
+        var versionArgument = new Argument<string?>("version")
+        {
+            Description = "已安装的精确版本；省略时使用当前 Redis 版本",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var start = new Command("start", "启动 Redis 服务") { versionArgument };
+        start.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        {
+            var version = parseResult.GetValue(versionArgument);
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                var current = await _global.GetCurrentAsync(cancellationToken);
+                version = current[RuntimeKind.Redis]?.Version
+                    ?? throw new SoftPilotException("尚未选择当前 Redis 版本；请传入版本或先执行 spt use redis@<version> --global。");
+            }
+
+            var value = await _redis.StartAsync(version, cancellationToken);
+            Console.WriteLine($"Redis {value.Version} 已启动，PID {value.ProcessId}。");
+        }));
+        redis.Subcommands.Add(start);
+
+        redis.Subcommands.Add(SimpleCommand("stop", "停止 Redis 服务", async token =>
+        {
+            await _redis.StopAsync(token);
+            Console.WriteLine("Redis 已停止。");
+        }));
+        return redis;
     }
 
     private static Command SimpleCommand(string name, string description, Func<CancellationToken, Task> action)
@@ -316,7 +373,7 @@ public sealed class CliApplication
 
     private static RuntimeTarget ParseTarget(string value) => RuntimeTarget.TryParse(value, out var target)
         ? target
-        : throw new ArgumentException("目标格式应为 <node|java|python>@<exact-version>。");
+        : throw new ArgumentException("目标格式应为 <node|java|python|redis>@<exact-version>。");
 
     private static RuntimeKind ParseKind(string value) => Enum.TryParse<RuntimeKind>(value, true, out var kind)
         ? kind

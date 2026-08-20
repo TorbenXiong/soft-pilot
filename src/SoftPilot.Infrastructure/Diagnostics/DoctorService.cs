@@ -11,19 +11,22 @@ public sealed class DoctorService : IDoctorService
     private readonly IStateStore _stateStore;
     private readonly IShellIntegrationService _shell;
     private readonly ProcessRunner _processRunner;
+    private readonly IRedisServiceManager _redisServices;
 
     public DoctorService(
         IInstallationLayout layout,
         IRootRegistry rootRegistry,
         IStateStore stateStore,
         IShellIntegrationService shell,
-        ProcessRunner processRunner)
+        ProcessRunner processRunner,
+        IRedisServiceManager redisServices)
     {
         _layout = layout;
         _rootRegistry = rootRegistry;
         _stateStore = stateStore;
         _shell = shell;
         _processRunner = processRunner;
+        _redisServices = redisServices;
     }
 
     public async Task<IReadOnlyList<DoctorCheck>> RunAsync(CancellationToken cancellationToken = default)
@@ -116,6 +119,34 @@ public sealed class DoctorService : IDoctorService
                     "corepack",
                     _layout.GetCurrentLink(RuntimeKind.Node),
                     cancellationToken));
+            }
+        }
+
+        var currentRedis = installations.FirstOrDefault(installation =>
+            installation.Kind == RuntimeKind.Redis && installation.IsCurrent);
+        if (shell.IsEnabled && currentRedis is not null)
+        {
+            foreach (var command in new[] { "redis-server", "redis-cli" })
+            {
+                checks.Add(await CheckCommandResolutionAsync(command, _layout.ShimsDirectory, cancellationToken));
+            }
+        }
+
+        if (installations.Any(installation => installation.Kind == RuntimeKind.Redis))
+        {
+            try
+            {
+                var redis = await _redisServices.GetStatusAsync(cancellationToken);
+                checks.Add(new DoctorCheck(
+                    "Redis service state",
+                    redis.Problem is null,
+                    redis.IsRunning
+                        ? $"redis@{redis.Version}, PID {redis.ProcessId}"
+                        : redis.Problem ?? "未运行"));
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                checks.Add(new DoctorCheck("Redis service state", false, exception.Message));
             }
         }
 

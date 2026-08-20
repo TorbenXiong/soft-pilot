@@ -57,6 +57,75 @@ public sealed class RuntimeProviderParsingTests
     }
 
     [TestMethod]
+    public void RedisReleases_RequireTrustedAssetsAndSupportMultipleMajorLines()
+    {
+        const string officialJson = """
+            [
+              { "tag_name": "8.10.1", "draft": false, "prerelease": false },
+              { "tag_name": "7.4.11", "draft": false, "prerelease": false },
+              { "tag_name": "6.2.24", "draft": false, "prerelease": false },
+              { "tag_name": "8.0.6", "draft": false, "prerelease": false }
+            ]
+            """;
+        const string windowsJson = """
+            [
+              {
+                "tag_name": "8.10.1", "draft": false, "prerelease": false,
+                "assets": [{
+                  "name": "Redis-8.10.1-Windows-x64-msys2.zip",
+                  "browser_download_url": "https://github.com/redis-windows/redis-windows/releases/download/8.10.1/Redis-8.10.1-Windows-x64-msys2.zip",
+                  "digest": "sha256:dcff676e861a4ae0a9854556239398e77a7469c9379af64a4a76798d166d1aa0"
+                }]
+              },
+              {
+                "tag_name": "7.4.11", "draft": false, "prerelease": false,
+                "assets": [{
+                  "name": "Redis-7.4.11-Windows-x64-msys2.zip",
+                  "browser_download_url": "https://github.com/redis-windows/redis-windows/releases/download/7.4.11/Redis-7.4.11-Windows-x64-msys2.zip",
+                  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }]
+              },
+              {
+                "tag_name": "6.2.24", "draft": false, "prerelease": false,
+                "assets": [{
+                  "name": "Redis-6.2.24-Windows-x64-msys2.zip",
+                  "browser_download_url": "https://github.com/redis-windows/redis-windows/releases/download/6.2.24/Redis-6.2.24-Windows-x64-msys2.zip",
+                  "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }]
+              },
+              {
+                "tag_name": "9.9.9", "draft": false, "prerelease": false,
+                "assets": [{
+                  "name": "Redis-9.9.9-Windows-x64-msys2.zip",
+                  "browser_download_url": "https://github.com/redis-windows/redis-windows/releases/download/9.9.9/Redis-9.9.9-Windows-x64-msys2.zip",
+                  "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }]
+              },
+              {
+                "tag_name": "8.0.6", "draft": false, "prerelease": false,
+                "assets": [{
+                  "name": "Redis-8.0.6-Windows-x64-msys2.zip",
+                  "browser_download_url": "https://example.test/Redis-8.0.6-Windows-x64-msys2.zip",
+                  "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }]
+              }
+            ]
+            """;
+
+        var releases = RedisRuntimeProvider.ParseReleases(windowsJson, officialJson);
+
+        CollectionAssert.AreEqual(
+            new[] { "8.10.1", "7.4.11", "6.2.24" },
+            releases.Select(release => release.Version).ToArray());
+        Assert.AreEqual(
+            "dcff676e861a4ae0a9854556239398e77a7469c9379af64a4a76798d166d1aa0",
+            releases[0].Sha256);
+        Assert.AreEqual(
+            "https://github.com/redis/redis/releases/tag/8.10.1",
+            releases[0].ReleasePageUri?.AbsoluteUri);
+    }
+
+    [TestMethod]
     public void PythonManagerJson_UsesVersionsObject_AndFiltersToStablePythonCoreX64()
     {
         const string json = """
