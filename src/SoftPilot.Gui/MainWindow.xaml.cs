@@ -108,19 +108,41 @@ public sealed partial class MainWindow : Window
 
     private async void OnUninstallVersionClick(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is RuntimeVersionRow row
-            && await ConfirmUninstallAsync(row.RuntimeKind, row.Version))
+        if ((sender as FrameworkElement)?.DataContext is RuntimeVersionRow row)
         {
-            await ViewModel.UninstallVersionAsync(row);
+            var confirmation = await ConfirmUninstallAsync(row.RuntimeKind, row.Version);
+            if (confirmation.Confirmed)
+            {
+                await ViewModel.UninstallVersionAsync(row, confirmation.DeleteData);
+            }
         }
     }
 
     private async void OnUninstallInstalledClick(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row
-            && await ConfirmUninstallAsync(row.RuntimeKind, row.Version))
+        if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
         {
-            await ViewModel.UninstallInstalledRuntimeAsync(row);
+            var confirmation = await ConfirmUninstallAsync(row.RuntimeKind, row.Version);
+            if (confirmation.Confirmed)
+            {
+                await ViewModel.UninstallInstalledRuntimeAsync(row, confirmation.DeleteData);
+            }
+        }
+    }
+
+    private async void OnStartInstalledRedisClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
+        {
+            await ViewModel.StartInstalledRedisAsync(row);
+        }
+    }
+
+    private async void OnStopInstalledRedisClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
+        {
+            await ViewModel.StopInstalledRedisAsync(row);
         }
     }
 
@@ -230,28 +252,52 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> ConfirmUninstallAsync(RuntimeKind kind, string version)
+    private async Task<(bool Confirmed, bool DeleteData)> ConfirmUninstallAsync(
+        RuntimeKind kind,
+        string version)
     {
         if (RootNavigation.XamlRoot is null)
         {
-            return false;
+            return (false, false);
         }
 
         await _dialogGate.WaitAsync();
         try
         {
+            CheckBox? deleteDataCheckBox = null;
+            object content = ViewModel.IsEnglish
+                ? $"{GetRuntimeName(kind)}@{version} will be permanently removed."
+                : $"将永久卸载 {GetRuntimeName(kind)}@{version}。";
+            if (kind == RuntimeKind.Redis)
+            {
+                deleteDataCheckBox = new CheckBox
+                {
+                    Content = ViewModel.IsEnglish
+                        ? "Also permanently delete this version's Redis data and logs"
+                        : "同时永久删除此版本的 Redis 数据和日志",
+                    IsChecked = false,
+                };
+                var panel = new StackPanel { Spacing = 12 };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = (string)content,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                panel.Children.Add(deleteDataCheckBox);
+                content = panel;
+            }
+
             var dialog = new ContentDialog
             {
                 XamlRoot = RootNavigation.XamlRoot,
                 Title = ViewModel.IsEnglish ? "Uninstall runtime?" : "确认卸载？",
-                Content = ViewModel.IsEnglish
-                    ? $"{GetRuntimeName(kind)}@{version} will be permanently removed."
-                    : $"将永久卸载 {GetRuntimeName(kind)}@{version}。",
+                Content = content,
                 PrimaryButtonText = ViewModel.IsEnglish ? "Uninstall" : "卸载",
                 CloseButtonText = ViewModel.IsEnglish ? "Cancel" : "取消",
                 DefaultButton = ContentDialogButton.Close,
             };
-            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            var confirmed = await dialog.ShowAsync() == ContentDialogResult.Primary;
+            return (confirmed, confirmed && deleteDataCheckBox?.IsChecked == true);
         }
         finally
         {
@@ -271,6 +317,7 @@ public sealed partial class MainWindow : Window
                 RuntimeKind.Node => NodeNavigationItem,
                 RuntimeKind.Java => JavaNavigationItem,
                 RuntimeKind.Python => PythonNavigationItem,
+                RuntimeKind.Redis => RedisNavigationItem,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind)),
             });
         }
@@ -287,6 +334,7 @@ public sealed partial class MainWindow : Window
             "settings" => ViewModel.SettingsText,
             "runtime:java" => "Java",
             "runtime:python" => "Python",
+            "runtime:redis" => "Redis",
             _ => "Node.js",
         };
     }
@@ -305,6 +353,7 @@ public sealed partial class MainWindow : Window
                 RuntimeKind.Node => NodeNavigationItem,
                 RuntimeKind.Java => JavaNavigationItem,
                 RuntimeKind.Python => PythonNavigationItem,
+                RuntimeKind.Redis => RedisNavigationItem,
                 _ => SettingsNavigationItem,
             };
         }
@@ -317,6 +366,7 @@ public sealed partial class MainWindow : Window
         RuntimeKind.Node => "Node.js",
         RuntimeKind.Java => "Java",
         RuntimeKind.Python => "Python",
+        RuntimeKind.Redis => "Redis",
         _ => kind.ToString(),
     };
 
@@ -327,9 +377,10 @@ public sealed partial class MainWindow : Window
             "runtime:node" => RuntimeKind.Node,
             "runtime:java" => RuntimeKind.Java,
             "runtime:python" => RuntimeKind.Python,
+            "runtime:redis" => RuntimeKind.Redis,
             _ => default,
         };
-        return tag is "runtime:node" or "runtime:java" or "runtime:python";
+        return tag is "runtime:node" or "runtime:java" or "runtime:python" or "runtime:redis";
     }
 
     private static bool IsOfficialRuntimeUri(RuntimeKind kind, Uri uri)
@@ -344,6 +395,7 @@ public sealed partial class MainWindow : Window
             RuntimeKind.Node => "nodejs.org",
             RuntimeKind.Java => "github.com",
             RuntimeKind.Python => "python.org",
+            RuntimeKind.Redis => "github.com",
             _ => string.Empty,
         };
         return string.Equals(uri.Host, officialDomain, StringComparison.OrdinalIgnoreCase)

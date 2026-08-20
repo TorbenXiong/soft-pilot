@@ -9,6 +9,9 @@ namespace SoftPilot.Tests;
 [TestClass]
 public sealed class OperationCoordinatorTests
 {
+    private static readonly IRedisServiceManager StoppedRedis =
+        new StubRedisServiceManager(new RedisServiceStatus(false));
+
     [TestMethod]
     public async Task InstallAsync_WhenCancellationArrivesAfterCommit_RecordsSucceeded()
     {
@@ -219,10 +222,198 @@ public sealed class OperationCoordinatorTests
         Assert.AreEqual(OperationStatus.Failed, (await state.GetOperationsAsync()).Single().Status);
     }
 
+    [TestMethod]
+    public async Task UninstallAsync_RedisPreservesDataAndLogsByDefault()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "8.2.9";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Redis, version);
+        var dataDirectory = layout.GetRedisDataDirectory(version);
+        var logPath = layout.GetRedisLogPath(version);
+        Directory.CreateDirectory(installDirectory);
+        Directory.CreateDirectory(dataDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        await File.WriteAllTextAsync(Path.Combine(dataDirectory, "dump.rdb"), "data");
+        await File.WriteAllTextAsync(logPath, "log");
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Redis,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Redis, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var coordinator = new OperationCoordinator(
+            [provider],
+            layout,
+            state,
+            global,
+            StoppedRedis);
+
+        await coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Redis, version));
+
+        Assert.IsFalse(Directory.Exists(installDirectory));
+        Assert.IsTrue(File.Exists(Path.Combine(dataDirectory, "dump.rdb")));
+        Assert.IsTrue(File.Exists(logPath));
+    }
+
+    [TestMethod]
+    public async Task UninstallAsync_RedisDeleteDataOptionDeletesDataAndLogs()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "8.2.9";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Redis, version);
+        var dataDirectory = layout.GetRedisDataDirectory(version);
+        var logDirectory = Path.GetDirectoryName(layout.GetRedisLogPath(version))!;
+        Directory.CreateDirectory(installDirectory);
+        Directory.CreateDirectory(dataDirectory);
+        Directory.CreateDirectory(logDirectory);
+        await File.WriteAllTextAsync(Path.Combine(dataDirectory, "dump.rdb"), "data");
+        await File.WriteAllTextAsync(Path.Combine(logDirectory, "redis.log"), "log");
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Redis,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Redis, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var coordinator = new OperationCoordinator(
+            [provider],
+            layout,
+            state,
+            global,
+            StoppedRedis);
+
+        await coordinator.UninstallAsync(
+            new RuntimeTarget(RuntimeKind.Redis, version),
+            new RuntimeUninstallOptions(DeleteData: true));
+
+        Assert.IsFalse(Directory.Exists(installDirectory));
+        Assert.IsFalse(Directory.Exists(dataDirectory));
+        Assert.IsFalse(Directory.Exists(logDirectory));
+        Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
+    }
+
+    [TestMethod]
+    public async Task UninstallAsync_WhenRedisStateDeletionFails_RestoresRuntimeDataAndLogs()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "8.2.9";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Redis, version);
+        var dataPath = Path.Combine(layout.GetRedisDataDirectory(version), "dump.rdb");
+        var logPath = layout.GetRedisLogPath(version);
+        Directory.CreateDirectory(installDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(dataPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+        await File.WriteAllTextAsync(dataPath, "data");
+        await File.WriteAllTextAsync(logPath, "log");
+        var state = new InMemoryStateStore
+        {
+            BeforeDeleteInstallation = (_, _) => throw new InvalidOperationException("simulated state failure"),
+        };
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Redis,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Redis, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var coordinator = new OperationCoordinator(
+            [provider],
+            layout,
+            state,
+            global,
+            StoppedRedis);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.UninstallAsync(
+            new RuntimeTarget(RuntimeKind.Redis, version),
+            new RuntimeUninstallOptions(DeleteData: true)));
+
+        Assert.IsTrue(Directory.Exists(installDirectory));
+        Assert.IsTrue(File.Exists(dataPath));
+        Assert.IsTrue(File.Exists(logPath));
+        Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Redis, version));
+    }
+
+    [TestMethod]
+    public async Task UninstallAsync_WhenRedisVersionIsRunning_PreservesRuntimeAndState()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "8.2.9";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Redis, version);
+        Directory.CreateDirectory(installDirectory);
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Redis,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Redis, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var redis = new StubRedisServiceManager(new RedisServiceStatus(true, version, 1234));
+        var coordinator = new OperationCoordinator([provider], layout, state, global, redis);
+
+        var exception = await Assert.ThrowsAsync<SoftPilot.Application.SoftPilotException>(() =>
+            coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Redis, version)));
+
+        StringAssert.Contains(exception.Message, "正在运行");
+        Assert.IsTrue(Directory.Exists(installDirectory));
+        Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Redis, version));
+    }
+
     private sealed class ProgressRecorder : IProgress<OperationProgress>
     {
         public List<OperationProgress> Values { get; } = [];
 
         public void Report(OperationProgress value) => Values.Add(value);
+    }
+
+    private sealed class StubRedisServiceManager(RedisServiceStatus status) : IRedisServiceManager
+    {
+        public Task<RedisServiceStatus> GetStatusAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(status);
+
+        public Task<RedisServiceStatus> StartAsync(string version, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task StopAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

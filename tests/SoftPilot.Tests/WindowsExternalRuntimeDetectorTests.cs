@@ -11,6 +11,7 @@ public sealed class WindowsExternalRuntimeDetectorTests
     [DataRow(RuntimeKind.Node, "v26.0.0-rc.1", "26.0.0-rc.1")]
     [DataRow(RuntimeKind.Python, "Python 3.14.7", "3.14.7")]
     [DataRow(RuntimeKind.Java, "openjdk version \"21.0.12\" 2026-07-21 LTS", "21.0.12")]
+    [DataRow(RuntimeKind.Redis, "Redis server v=8.2.9 sha=00000000:0 malloc=jemalloc bits=64", "8.2.9")]
     public void ParseVersion_ReturnsValidRuntimeVersion(RuntimeKind kind, string output, string expected)
     {
         Assert.AreEqual(expected, WindowsExternalRuntimeDetector.ParseVersion(kind, output));
@@ -38,5 +39,27 @@ public sealed class WindowsExternalRuntimeDetectorTests
         Assert.IsFalse(WindowsExternalRuntimeDetector.IsWindowsAppsDirectory(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Python")));
+    }
+
+    [TestMethod]
+    public void ManagedWorkspacePaths_AreExcludedFromExternalDiscovery()
+    {
+        var managementDirectory = Path.Combine("D:\\SoftPilot", "SoftPilotData");
+
+        Assert.IsTrue(WindowsExternalRuntimeDetector.IsPathUnderDirectory(
+            Path.Combine(managementDirectory, "tools", "shims", "node.exe"),
+            managementDirectory));
+        Assert.IsTrue(WindowsExternalRuntimeDetector.IsPathUnderDirectory(
+            Path.Combine(managementDirectory, "current", "node", "node.exe"),
+            managementDirectory));
+        Assert.IsFalse(WindowsExternalRuntimeDetector.IsPathUnderDirectory(
+            Path.Combine("D:\\External", "nodejs", "node.exe"),
+            managementDirectory));
+        Assert.IsFalse(WindowsExternalRuntimeDetector.IsPathUnderDirectory(
+            Path.Combine("D:\\SoftPilotDataBackup", "node.exe"),
+            managementDirectory));
+        Assert.IsFalse(WindowsExternalRuntimeDetector.IsPathUnderDirectory(
+            "invalid\0path",
+            managementDirectory));
     }
 }

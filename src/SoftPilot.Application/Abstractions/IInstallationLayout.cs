@@ -17,5 +17,7 @@ public interface IInstallationLayout
     string GetRuntimeDirectory(RuntimeKind kind, string version);
     string GetCurrentLink(RuntimeKind kind);
     string GetTrashDirectory(RuntimeKind kind, string version, DateTimeOffset deletedAt);
+    string GetRedisDataDirectory(string version);
+    string GetRedisLogPath(string version);
     void EnsureWorkspace();
 }

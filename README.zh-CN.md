@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-SoftPilot 是用于安装和管理多个 Node.js、Java 与 Python 版本的 Windows 便携式应用。
+SoftPilot 是用于安装和管理多个 Node.js、Java、Python 与本地开发 Redis 版本的 Windows 便携式应用。
 
 ## 开始使用
 
@@ -15,14 +15,15 @@ SoftPilot 是用于安装和管理多个 Node.js、Java 与 Python 版本的 Win
 
 ## 下载来源
 
-Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小流量 HTTPS 探测，并使用响应更快的来源。版本目录和完整性数据仍来自官方；校验失败立即终止，Python 始终使用官方来源。
+Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小流量 HTTPS 探测，并使用响应更快的来源。Python 始终使用官方来源。Redis 版本必须与 Redis 官方发布目录交叉核对；Windows x64 归档来自社区 `redis-windows/redis-windows` 项目，并强制校验 GitHub 提供的 SHA-256 摘要。
 
 ## 主要功能
 
-- 从 Node.js、Eclipse Temurin 和 Python 官方来源发现可管理版本。
+- 从 Node.js、Eclipse Temurin、Python 和 Redis 官方目录发现可管理版本。
 - 并行安装和管理多个运行时版本。
 - 无需重新安装或删除其他版本，即可选择终端默认版本。
-- 自动为新打开的终端配置 `node`、`npm`、`npx`、Java 和 Python 命令入口。
+- 自动为新打开的终端配置 `node`、`npm`、`npx`、Java、Python、`redis-server` 和 `redis-cli` 命令入口。
+- 管理每个可用 Redis 主版本线的最新可验证补丁，并在 `127.0.0.1:6379` 运行一个数据和日志按版本隔离的本地实例。
 - 以只读方式发现 SoftPilot 外部安装的运行时。
 - 在对应版本旁直接展示下载进度和操作结果。
 - 永久卸载不再需要的版本。
@@ -36,3 +37,18 @@ Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小
 - Node.js Windows x64 版本
 - Eclipse Temurin HotSpot JDK Windows x64 版本
 - CPython Windows x64 版本
+- `redis-windows/redis-windows` 提供的 Redis x64 社区构建，仅用于本地开发
+
+## Redis CLI
+
+```powershell
+spt runtime install redis@8.2.9
+spt use redis@8.2.9 --global
+spt redis start
+spt redis status --json
+spt redis stop
+spt runtime uninstall redis@8.2.9                 # 保留 Redis 数据和日志
+spt runtime uninstall redis@8.2.9 --delete-data   # 同时永久删除数据和日志
+```
+
+SoftPilot 不会把 Redis 注册为 Windows Service，也不会设置开机启动。该 Windows 构建与 Redis Ltd. 无隶属或官方认可关系，不应用于生产部署。

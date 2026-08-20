@@ -33,6 +33,7 @@ public static class DependencyInjection
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
         }));
         services.AddSingleton<ProcessRunner>();
+        services.AddSingleton<WindowsTcpListenerProcessResolver>();
         services.AddSingleton<IDownloadService, HttpDownloadService>();
         services.AddSingleton<ISignatureVerificationService, BouncyCastleSignatureVerificationService>();
         services.AddSingleton<IStateStore, SqliteStateStore>();
@@ -50,6 +51,9 @@ public static class DependencyInjection
         services.AddSingleton<NodeRuntimeProvider>();
         services.AddSingleton<TemurinRuntimeProvider>();
         services.AddSingleton<PythonRuntimeProvider>();
+        services.AddSingleton<RedisRuntimeProvider>();
+        services.AddSingleton<RedisServiceManager>();
+        services.AddSingleton<IRedisServiceManager>(provider => provider.GetRequiredService<RedisServiceManager>());
         services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
             provider.GetRequiredService<NodeRuntimeProvider>(),
             provider.GetRequiredService<RuntimeCatalogCache>()));
@@ -59,13 +63,30 @@ public static class DependencyInjection
         services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
             provider.GetRequiredService<PythonRuntimeProvider>(),
             provider.GetRequiredService<RuntimeCatalogCache>()));
+        services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
+            provider.GetRequiredService<RedisRuntimeProvider>(),
+            provider.GetRequiredService<RuntimeCatalogCache>()));
 
         services.AddSingleton<IExternalRuntimeDetector>(provider =>
-            new WindowsExternalRuntimeDetector(RuntimeKind.Node, provider.GetRequiredService<ProcessRunner>()));
+            new WindowsExternalRuntimeDetector(
+                RuntimeKind.Node,
+                provider.GetRequiredService<ProcessRunner>(),
+                provider.GetRequiredService<IInstallationLayout>()));
         services.AddSingleton<IExternalRuntimeDetector>(provider =>
-            new WindowsExternalRuntimeDetector(RuntimeKind.Java, provider.GetRequiredService<ProcessRunner>()));
+            new WindowsExternalRuntimeDetector(
+                RuntimeKind.Java,
+                provider.GetRequiredService<ProcessRunner>(),
+                provider.GetRequiredService<IInstallationLayout>()));
         services.AddSingleton<IExternalRuntimeDetector>(provider =>
-            new WindowsExternalRuntimeDetector(RuntimeKind.Python, provider.GetRequiredService<ProcessRunner>()));
+            new WindowsExternalRuntimeDetector(
+                RuntimeKind.Python,
+                provider.GetRequiredService<ProcessRunner>(),
+                provider.GetRequiredService<IInstallationLayout>()));
+        services.AddSingleton<IExternalRuntimeDetector>(provider =>
+            new WindowsExternalRuntimeDetector(
+                RuntimeKind.Redis,
+                provider.GetRequiredService<ProcessRunner>(),
+                provider.GetRequiredService<IInstallationLayout>()));
         return services;
     }
 

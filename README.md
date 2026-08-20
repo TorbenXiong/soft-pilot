@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-SoftPilot is a portable Windows application for installing and managing multiple versions of Node.js, Java, and Python.
+SoftPilot is a portable Windows application for installing and managing multiple versions of Node.js, Java, Python, and Redis for local development.
 
 ## Get started
 
@@ -15,14 +15,15 @@ To upgrade, exit SoftPilot and replace the existing `SoftPilot.exe` with the new
 
 ## Download sources
 
-Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Catalogs and integrity data remain official; integrity failures abort immediately, and Python remains official-only.
+Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Python remains official-only. Redis versions are cross-checked with official Redis releases; Windows x64 archives come from the community `redis-windows/redis-windows` project and are accepted only with GitHub-provided SHA-256 digests.
 
 ## Features
 
-- Discover supported versions from official Node.js, Eclipse Temurin, and Python sources.
+- Discover supported versions from official Node.js, Eclipse Temurin, Python, and Redis catalogs.
 - Install and manage multiple runtime versions side by side.
 - Choose a terminal-default version without reinstalling or removing other versions.
-- Configure `node`, `npm`, `npx`, Java, and Python command entries automatically for newly opened terminals.
+- Configure `node`, `npm`, `npx`, Java, Python, `redis-server`, and `redis-cli` command entries automatically for newly opened terminals.
+- Manage the latest verified patch from each available Redis major line and run one local instance with version-specific data and logs on `127.0.0.1:6379`.
 - Detect runtimes installed outside SoftPilot in read-only mode.
 - Show download progress and operation results directly beside each version.
 - Permanently uninstall versions that are no longer needed.
@@ -36,3 +37,18 @@ Node.js and Temurin archives automatically use the faster responsive source afte
 - Node.js Windows x64 releases
 - Eclipse Temurin HotSpot JDK Windows x64 releases
 - CPython Windows x64 releases
+- Redis x64 community builds from `redis-windows/redis-windows`, for local development only
+
+## Redis CLI
+
+```powershell
+spt runtime install redis@8.2.9
+spt use redis@8.2.9 --global
+spt redis start
+spt redis status --json
+spt redis stop
+spt runtime uninstall redis@8.2.9                 # Preserves Redis data and logs
+spt runtime uninstall redis@8.2.9 --delete-data   # Permanently deletes them
+```
+
+SoftPilot does not register Redis as a Windows Service or enable automatic startup. The Windows build is not affiliated with or endorsed by Redis Ltd. and should not be used as a production deployment.

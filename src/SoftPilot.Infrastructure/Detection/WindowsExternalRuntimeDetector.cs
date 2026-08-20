@@ -10,12 +10,20 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
     private static readonly Regex StandardVersionPattern = new(
         "^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$",
         RegexOptions.CultureInvariant);
+    private static readonly Regex RedisVersionPattern = new(
+        "(?:Redis server )?v=(\\d+\\.\\d+\\.\\d+)",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     private readonly ProcessRunner _processRunner;
+    private readonly string _managementDirectory;
 
-    public WindowsExternalRuntimeDetector(RuntimeKind kind, ProcessRunner processRunner)
+    public WindowsExternalRuntimeDetector(
+        RuntimeKind kind,
+        ProcessRunner processRunner,
+        IInstallationLayout layout)
     {
         Kind = kind;
         _processRunner = processRunner;
+        _managementDirectory = layout.ManagementDirectory;
     }
 
     public RuntimeKind Kind { get; }
@@ -23,6 +31,7 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
     public async Task<IReadOnlyList<ExternalRuntime>> DetectAsync(CancellationToken cancellationToken = default)
     {
         var candidates = GetCandidates()
+            .Where(candidate => !IsPathUnderDirectory(candidate, _managementDirectory))
             .Where(File.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -66,6 +75,7 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
             RuntimeKind.Node => "node.exe",
             RuntimeKind.Java => "java.exe",
             RuntimeKind.Python => "python.exe",
+            RuntimeKind.Redis => "redis-server.exe",
             _ => throw new ArgumentOutOfRangeException(),
         };
 
@@ -103,7 +113,7 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             yield return Path.Combine(programFiles, "nodejs", fileName);
         }
-        else
+        else if (Kind == RuntimeKind.Python)
         {
             foreach (var candidate in EnumeratePythonRegistry(RegistryHive.CurrentUser))
             {
@@ -177,6 +187,12 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
             return first >= 0 && second > first ? output[(first + 1)..second] : null;
         }
 
+        if (kind == RuntimeKind.Redis)
+        {
+            var match = RedisVersionPattern.Match(output);
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
         var token = output.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
         var normalized = token is null ? null : ProviderUtilities.NormalizeVersion(token);
         return normalized is not null && StandardVersionPattern.IsMatch(normalized) ? normalized : null;
@@ -191,6 +207,21 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
         var candidate = Path.GetFullPath(directory.Trim('"'));
         return string.Equals(candidate.TrimEnd(Path.DirectorySeparatorChar), windowsApps, StringComparison.OrdinalIgnoreCase)
             || candidate.StartsWith(windowsApps + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool IsPathUnderDirectory(string candidatePath, string directory)
+    {
+        try
+        {
+            var candidate = Path.GetFullPath(candidatePath);
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            return string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase)
+                || candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     private static string GetSource(string executable)

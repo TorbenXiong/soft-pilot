@@ -21,5 +21,9 @@ public sealed class WindowsInstallationLayoutTests
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "node")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "java")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "python")));
+        Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "redis")));
+        Assert.AreEqual(
+            Path.Combine(layout.DataDirectory, "redis", "8.2.9"),
+            layout.GetRedisDataDirectory("8.2.9"));
     }
 }
