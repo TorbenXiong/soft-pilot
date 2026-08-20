@@ -94,6 +94,24 @@ public sealed class RecommendedRuntimeReleaseSelectorTests
             selected.Select(release => release.Version).ToArray());
     }
 
+    [TestMethod]
+    public void Select_MySql_ReturnsLatestPatchForEachMajorMinorLine()
+    {
+        var releases = new[]
+        {
+            Release(RuntimeKind.MySql, "8.4.10", isLts: true),
+            Release(RuntimeKind.MySql, "8.4.11", isLts: true),
+            Release(RuntimeKind.MySql, "5.7.43"),
+            Release(RuntimeKind.MySql, "5.7.44"),
+        };
+
+        var selected = RecommendedRuntimeReleaseSelector.Select(RuntimeKind.MySql, releases);
+
+        CollectionAssert.AreEqual(
+            new[] { "8.4.11", "5.7.44" },
+            selected.Select(release => release.Version).ToArray());
+    }
+
     private static RuntimeRelease Release(RuntimeKind kind, string version, bool isLts = false) => new(
         kind,
         version,

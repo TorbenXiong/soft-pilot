@@ -11,7 +11,6 @@ public sealed class OperationCoordinatorTests
 {
     private static readonly IRedisServiceManager StoppedRedis =
         new StubRedisServiceManager(new RedisServiceStatus(false));
-
     [TestMethod]
     public async Task InstallAsync_WhenCancellationArrivesAfterCommit_RecordsSucceeded()
     {
@@ -398,6 +397,46 @@ public sealed class OperationCoordinatorTests
         Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Redis, version));
     }
 
+    [TestMethod]
+    public async Task UninstallAsync_WhenMySqlVersionIsRunning_PreservesRuntimeAndState()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "8.4.11";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.MySql, version);
+        Directory.CreateDirectory(installDirectory);
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.MySql,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.MySql, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var mysql = new StubMySqlServiceManager(new MySqlServiceStatus(true, version, 1234));
+        var coordinator = new OperationCoordinator(
+            [provider],
+            layout,
+            state,
+            global,
+            mySqlServices: mysql);
+
+        var exception = await Assert.ThrowsAsync<SoftPilot.Application.SoftPilotException>(() =>
+            coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.MySql, version)));
+
+        StringAssert.Contains(exception.Message, "正在运行");
+        Assert.IsTrue(Directory.Exists(installDirectory));
+        Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.MySql, version));
+    }
+
     private sealed class ProgressRecorder : IProgress<OperationProgress>
     {
         public List<OperationProgress> Values { get; } = [];
@@ -414,6 +453,29 @@ public sealed class OperationCoordinatorTests
             throw new NotSupportedException();
 
         public Task StopAsync(CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class StubMySqlServiceManager(MySqlServiceStatus status) : IMySqlServiceManager
+    {
+        public Task<IReadOnlyList<MySqlServiceStatus>> GetStatusesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<MySqlServiceStatus>>([status]);
+
+        public Task<MySqlServiceStatus> GetStatusAsync(string version, CancellationToken cancellationToken = default) =>
+            Task.FromResult(status);
+
+        public Task<MySqlServiceStatus> StartAsync(string version, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task StopAsync(string version, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<MySqlCredentials> GetCredentialsAsync(string version, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public int GetConfiguredPort(string version) => status.Port;
+
+        public Task SetConfiguredPortAsync(string version, int port, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 }

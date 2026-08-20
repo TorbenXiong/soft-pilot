@@ -13,6 +13,9 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
     private static readonly Regex RedisVersionPattern = new(
         "(?:Redis server )?v=(\\d+\\.\\d+\\.\\d+)",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex MySqlVersionPattern = new(
+        "\\bVer\\s+(\\d+\\.\\d+\\.\\d+)\\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     private readonly ProcessRunner _processRunner;
     private readonly string _managementDirectory;
 
@@ -76,6 +79,7 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
             RuntimeKind.Java => "java.exe",
             RuntimeKind.Python => "python.exe",
             RuntimeKind.Redis => "redis-server.exe",
+            RuntimeKind.MySql => "mysqld.exe",
             _ => throw new ArgumentOutOfRangeException(),
         };
 
@@ -121,6 +125,13 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
             }
 
             foreach (var candidate in EnumeratePythonRegistry(RegistryHive.LocalMachine))
+            {
+                yield return candidate;
+            }
+        }
+        else if (Kind == RuntimeKind.MySql)
+        {
+            foreach (var candidate in EnumerateUnderProgramFiles("MySQL", "bin\\mysqld.exe"))
             {
                 yield return candidate;
             }
@@ -190,6 +201,12 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
         if (kind == RuntimeKind.Redis)
         {
             var match = RedisVersionPattern.Match(output);
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        if (kind == RuntimeKind.MySql)
+        {
+            var match = MySqlVersionPattern.Match(output);
             return match.Success ? match.Groups[1].Value : null;
         }
 

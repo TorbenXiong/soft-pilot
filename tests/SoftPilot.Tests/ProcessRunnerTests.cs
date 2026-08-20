@@ -7,6 +7,20 @@ namespace SoftPilot.Tests;
 public sealed class ProcessRunnerTests
 {
     [TestMethod]
+    public async Task RunAsync_WithStandardInput_WritesAndClosesInput()
+    {
+        var runner = new ProcessRunner();
+
+        var result = await runner.RunAsync(
+            "powershell.exe",
+            ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$input | ForEach-Object { $_.ToUpperInvariant() }"],
+            standardInput: "mysql bootstrap\n");
+
+        Assert.AreEqual(0, result.ExitCode);
+        Assert.AreEqual("MYSQL BOOTSTRAP", result.StandardOutput.Trim());
+    }
+
+    [TestMethod]
     public async Task RunAsync_WhenCancelled_TerminatesProcessTree()
     {
         using var sandbox = new TemporaryDirectory();

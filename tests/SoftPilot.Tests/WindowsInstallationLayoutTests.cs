@@ -22,8 +22,15 @@ public sealed class WindowsInstallationLayoutTests
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "java")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "python")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "redis")));
+        Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "mysql")));
         Assert.AreEqual(
             Path.Combine(layout.DataDirectory, "redis", "8.2.9"),
             layout.GetRedisDataDirectory("8.2.9"));
+        Assert.AreEqual(
+            Path.Combine(layout.DataDirectory, "mysql", "5.7", "data"),
+            layout.GetMySqlDataDirectory("5.7.44"));
+        Assert.AreEqual(
+            Path.Combine(layout.DataDirectory, "mysql", "8.4", "my.ini"),
+            layout.GetMySqlConfigPath("8.4.11"));
     }
 }

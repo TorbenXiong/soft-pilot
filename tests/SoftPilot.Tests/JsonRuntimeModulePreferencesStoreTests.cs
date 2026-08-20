@@ -21,9 +21,11 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
         Assert.IsTrue(preferences.JavaEnabled);
         Assert.IsTrue(preferences.PythonEnabled);
         Assert.IsTrue(preferences.RedisEnabled);
+        Assert.IsTrue(preferences.MySqlEnabled);
+        Assert.IsTrue(preferences.GitEnabled);
         Assert.AreEqual("en-US", preferences.Language);
         CollectionAssert.AreEqual(
-            new[] { RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Python, RuntimeKind.Redis },
+            new[] { ModuleKind.Node, ModuleKind.Java, ModuleKind.Python, ModuleKind.Redis, ModuleKind.MySql, ModuleKind.Git },
             preferences.GetModuleOrder().ToArray());
     }
 
@@ -33,7 +35,7 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
         using var temporary = new TemporaryDirectory();
         var layout = new WindowsInstallationLayout(temporary.Path);
         var store = new JsonRuntimeModulePreferencesStore(layout);
-        var expectedOrder = new[] { RuntimeKind.Python, RuntimeKind.Redis, RuntimeKind.Node, RuntimeKind.Java };
+        var expectedOrder = new[] { ModuleKind.Python, ModuleKind.Redis, ModuleKind.MySql, ModuleKind.Git, ModuleKind.Node, ModuleKind.Java };
         var expected = new RuntimeModulePreferences(true, true, false, "zh-CN", expectedOrder);
 
         await store.SaveAsync(expected);
@@ -43,7 +45,7 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
     }
 
     [TestMethod]
-    public async Task LoadAsync_LegacyPreferencesEnableRedisAndAppendItToOrder()
+    public async Task LoadAsync_LegacyPreferencesEnableNewServiceModulesAndAppendThemToOrder()
     {
         using var temporary = new TemporaryDirectory();
         var layout = new WindowsInstallationLayout(temporary.Path);
@@ -64,8 +66,10 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
         var preferences = await store.LoadAsync();
 
         Assert.IsTrue(preferences.RedisEnabled);
+        Assert.IsTrue(preferences.MySqlEnabled);
+        Assert.IsTrue(preferences.GitEnabled);
         CollectionAssert.AreEqual(
-            new[] { RuntimeKind.Python, RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Redis },
+            new[] { ModuleKind.Python, ModuleKind.Node, ModuleKind.Java, ModuleKind.Redis, ModuleKind.MySql, ModuleKind.Git },
             preferences.GetModuleOrder().ToArray());
     }
 
@@ -76,10 +80,10 @@ public sealed class JsonRuntimeModulePreferencesStoreTests
             true,
             true,
             true,
-            ModuleOrder: new[] { RuntimeKind.Python, RuntimeKind.Python });
+            ModuleOrder: new[] { ModuleKind.Python, ModuleKind.Python });
 
         CollectionAssert.AreEqual(
-            new[] { RuntimeKind.Python, RuntimeKind.Node, RuntimeKind.Java, RuntimeKind.Redis },
+            new[] { ModuleKind.Python, ModuleKind.Node, ModuleKind.Java, ModuleKind.Redis, ModuleKind.MySql, ModuleKind.Git },
             preferences.GetModuleOrder().ToArray());
     }
 

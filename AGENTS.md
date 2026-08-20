@@ -2,18 +2,19 @@
 
 ## 1. 项目定位与当前范围
 
-SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.7`，V1 聚焦：
+SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.8`，V1 聚焦：
 
 - Node.js 官方 Windows x64 ZIP。
 - Eclipse Temurin HotSpot JDK Windows x64 ZIP。
 - CPython 官方 Python Install Manager。
 - Redis 官方版本目录与 `redis-windows/redis-windows` Windows x64 MSYS2 社区构建，仅用于本地开发。
+- Oracle MySQL Community Server 官方 Windows x64 ZIP：8.4 LTS 推荐线与最终 5.7.44 兼容线，仅用于本地开发。
 - Git for Windows 官方最新版 x64 PortableGit，采用单一受管副本，不进入多版本或终端默认版本模型。
-- 官方版本发现、多版本安装、终端默认版本切换、外部运行时只读发现和永久卸载；Redis 额外支持单实例启动、停止和状态检查。
+- 官方版本发现、多版本安装、终端默认版本切换、外部运行时只读发现和永久卸载；Redis 额外支持单实例启动、停止和状态检查，MySQL 支持按版本线多实例启动、停止和状态检查。
 - Node.js 与 Eclipse Temurin 归档默认在官方源与清华 TUNA 镜像间智能选择；版本元数据和完整性信任链仍只使用官方来源。
 - WinUI 3 GUI、`spt` CLI、shim、单文件 EXE 发布和首次启动自迁移。
 
-除上述 Redis 本地开发单实例和 Git 便携工具外，V1 不包含项目级版本绑定、自定义源、其他第三方镜像、数据库服务、Docker、AI CLI、普通软件和跨平台实现。Redis V1 不注册 Windows Service、不设置开机启动，也不支持多实例并行运行。Git V1 只管理最新版便携副本，不修改用户 PATH、不接管外部 Git 安装，也不自动改写全局 `.gitconfig`。不要在无明确需求时提前引入这些范围。
+除上述 Redis 单实例、MySQL 按版本线隔离的本地开发多实例和 Git 便携工具外，V1 不包含项目级版本绑定、自定义源、其他第三方镜像、其他数据库服务、Docker、AI CLI、普通软件和跨平台实现。Redis/MySQL V1 不注册 Windows Service、不设置开机启动。MySQL V1 不包含数据库/用户管理、备份恢复或跨大版本自动迁移。Git V1 只管理最新版便携副本，不修改用户 PATH、不接管外部 Git 安装，也不自动改写全局 `.gitconfig`。不要在无明确需求时提前引入这些范围。
 
 开始修改前按任务需要阅读：
 
@@ -27,7 +28,7 @@ SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版�
 - `SoftPilot.Application`：用例、选择策略和抽象接口。
 - `SoftPilot.Infrastructure`：Windows、SQLite、网络、Provider、安装、切换、Shell 和诊断实现。
 - `SoftPilot.Cli`：`spt` 命令入口。
-- `SoftPilot.Shim`：`node`、`npm`、`npx`、Java、Python、`redis-server` 和 `redis-cli` 命令转发。
+- `SoftPilot.Shim`：`node`、`npm`、`npx`、Java、Python、Redis 和 MySQL 命令转发。
 - `SoftPilot.Gui`：WinUI 3 界面、首次启动位置选择和应用本体自迁移。
 - `SoftPilot.Tests`：MSTest 自动化测试。
 
@@ -45,6 +46,7 @@ SoftPilot 应用根目录只包含可替换的 `SoftPilot.exe` 和独立的 `Sof
 - 终端默认版本不得直接卸载；先切换或清除当前选择。
 - 卸载是永久操作：先移动到 staging，状态删除成功后再物理删除；失败时恢复目录和状态。
 - Redis 卸载默认保留按版本隔离的数据和日志；只有用户明确选择删除数据时，才把对应数据和日志目录纳入同一 staging 卸载事务并支持失败回滚。
+- MySQL 卸载默认保留按 `major.minor` 版本线隔离的数据、配置、DPAPI 凭据和日志；只有用户明确选择删除数据时，才把整条版本线纳入同一 staging 卸载事务并支持失败回滚。
 - 应用根目录记录在 `HKCU\Software\SoftPilot\Root`。V1 不支持首次指定后的管理目录迁移。
 
 应用根目录解析必须保持大小写敏感的 ordinal 规则：只有规范化后末级名称精确等于 `SoftPilot` 时才不追加目录名。
@@ -57,13 +59,15 @@ Provider 只能使用当前范围内的官方元数据和官方发布资产。No
 - Java：Adoptium 官方 LTS 元数据和 Eclipse Temurin Windows x64 JDK；校验哈希和签名；归档可使用清华 TUNA 的 Adoptium 镜像。
 - Python：官方 Python Install Manager，并通过 `--target` 安装到 SoftPilot 工作区。
 - Redis：版本必须同时存在于 Redis 官方 GitHub Releases；归档固定来自 `redis-windows/redis-windows` 的 Windows x64 MSYS2 GitHub Release Asset，并校验 GitHub 提供的 SHA-256 digest。该社区构建仅用于本地开发，用户界面和文档不得描述为 Redis 官方 Windows 发行版。
+- MySQL：只接受内置受支持目录中的 Oracle 官方 Windows x64 ZIP，当前为 8.4 LTS 与最终 5.7.44；归档固定来自 `cdn.mysql.com`，并使用 `repo.mysql.com` 官方公钥和固定主密钥指纹验证同名 `.asc` 分离签名。
+- MySQL 安装前检测 HKLM 中 Microsoft Visual C++ x64 v14 Runtime；低于 `14.29.30157` 或缺失时，只允许从 Microsoft 官方 `aka.ms/vc14/vc_redist.x64.exe` 下载，必须验证有效 Authenticode 签名和 Microsoft Corporation 发布者后再通过 UAC 安装。该系统共享组件不随 MySQL 卸载或事务失败回滚；需要重启时中止 MySQL 安装并提示重试。
 - Git：只使用 `git-for-windows/git` 官方最新稳定 Release 的 `PortableGit-*-64-bit.7z.exe`，必须校验 GitHub 提供的 SHA-256 digest，并在 staging 中解包和核对 `git --version` 后才可替换 `app\git` 唯一受管目录。
 
 必须遵守：
 
 - TLS、官方元数据、哈希、签名或健康检查任一失败即终止安装。
 - 不允许加入跳过 TLS、忽略哈希、忽略签名或吞掉健康检查失败的兼容开关。
-- Node.js 与 Temurin 默认自动探测官方源与内置清华 TUNA 归档源；Redis 只使用上述固定社区构建源；不接受其他镜像或自定义源。
+- Node.js 与 Temurin 默认自动探测官方源与内置清华 TUNA 归档源；Redis 只使用上述固定社区构建源；MySQL 只使用 Oracle 官方源；不接受其他镜像或自定义源。
 - 网络错误可在内置来源间回退；哈希或签名失败必须立即终止。
 - 下载内容进入 `cache\downloads`，解包或安装只发生在独立 staging 目录。
 - 健康检查确认实际版本后才能写入最终目录和 SQLite。
@@ -81,6 +85,7 @@ Provider 只能使用当前范围内的官方元数据和官方发布资产。No
 - Node.js 必须保证 `node`、`npm`、`npx` 可用，并让当前版本的全局 npm/Corepack 命令可以从 `current\node` 解析。
 - Redis 必须保证 `redis-server`、`redis-cli` 可用。选择 `current\redis` 不得自动启动服务；服务配置、数据和日志按完整版本隔离，默认仅绑定 `127.0.0.1:6379`。
 - Redis 停止优先使用 `redis-cli SHUTDOWN`；兜底终止前必须同时验证 PID、可执行文件绝对路径和启动时间，不得按进程名批量终止。
+- MySQL 必须保证 `mysqld`、`mysql`、`mysqladmin` 可用。选择 `current\mysql` 不得自动启动服务；8.4 默认绑定 `127.0.0.1:3306`，5.7 默认绑定 `127.0.0.1:3307`，端口可按版本线修改但不得重复，数据目录与进程状态同样按版本线隔离并支持并行运行。首次初始化密码必须在禁用 TCP 的通道完成，持久凭据必须使用当前 Windows 用户 DPAPI 保护，客户端命令行不得包含密码。停止优先使用 `mysqladmin shutdown`；兜底终止前必须同时验证目标版本的 PID、可执行文件绝对路径和启动时间。
 
 ## 6. 依赖、版本和生成内容
 
@@ -114,7 +119,7 @@ dotnet format SoftPilot.slnx --verify-no-changes --no-restore
 开发包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.7
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.8
 ```
 
 未提供证书指纹时生成的是未签名开发构建，不得描述为已签名发布版本。打包不等于首次启动；除非任务明确要求，不要自动运行生成的便携应用或修改用户环境。

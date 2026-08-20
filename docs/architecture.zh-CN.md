@@ -24,7 +24,8 @@
    ├─ current\<kind>
    ├─ tools\shims\
    ├─ data\
-   │  └─ redis\<version>\redis.conf 与数据库文件
+   │  ├─ redis\<version>\redis.conf 与数据库文件
+   │  └─ mysql\<major.minor>\data、my.ini、DPAPI 凭据与初始化标记
    ├─ cache\downloads\
    ├─ staging\
    └─ logs\
@@ -42,18 +43,26 @@
 - 卸载先把运行时移入 staging，删除状态后再删除文件；失败时恢复目录和状态。
 - GUI 与 CLI 的修改操作共用工作区跨进程锁。
 
-Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。Redis 版本必须存在于 Redis 官方发布目录中；Windows 归档来自 `redis-windows/redis-windows` GitHub Releases，并强制校验 GitHub Asset SHA-256 摘要。Git 只接受 `git-for-windows/git` 官方最新 Release 的 x64 PortableGit 自解压归档，并强制校验 GitHub Asset SHA-256 摘要。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
+Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。Redis 版本必须存在于 Redis 官方发布目录中；Windows 归档来自 `redis-windows/redis-windows` GitHub Releases，并强制校验 GitHub Asset SHA-256 摘要。MySQL 仅接受 Oracle `cdn.mysql.com` 的受支持 Windows x64 ZIP，并使用 `repo.mysql.com` 的固定主密钥指纹验证同名 `.asc` 分离签名。MySQL 安装还会检测 HKLM 中的 x64 v14 Runtime；低于 `14.29.30157` 或缺失时，只从 Microsoft `https://aka.ms/vc14/vc_redist.x64.exe` 下载，要求 Authenticode 状态有效且证书发布者为 Microsoft Corporation，再通过 UAC 安装。Git 只接受 `git-for-windows/git` 官方最新 Release 的 x64 PortableGit 自解压归档，并强制校验 GitHub Asset SHA-256 摘要。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
 
 ## 下载来源
 
-Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。Python 始终使用官方来源。Redis 只使用固定的社区 Windows 归档源，每个版本都与 Redis 官方元数据交叉核对，不接受自定义源。Git 只使用官方来源，不提供来源或版本选择。
+Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。Python 始终使用官方来源。Redis 只使用固定的社区 Windows 归档源，每个版本都与 Redis 官方元数据交叉核对，不接受自定义源。MySQL 当前受支持目录固定为 8.4 LTS 和最终 5.7.44 兼容版，只使用 Oracle 官方来源，不提供镜像或自定义源。Git 只使用官方来源，不提供来源或版本选择。
 
 ## Redis 服务
 
 Redis 以单个本地前台进程运行，GUI 或 CLI 退出后进程继续存在。启动时创建按版本隔离的配置、数据和日志路径，并要求 `redis-cli PING` 成功、Redis 版本符合预期，且 Windows TCP 监听者 PID 与 SoftPilot 启动的进程一致；不得把 Redis 报告的 MSYS2 POSIX PID 与 Windows PID 直接比较。只有监听者 PID 匹配时才发送 `SHUTDOWN`；只有保存的 PID、可执行文件路径和进程启动时间全部匹配时，才允许执行兜底终止。SoftPilot 不注册 Windows Service，也不设置开机启动。卸载 Redis 运行时版本时默认保留数据和日志；GUI 确认框或 CLI `--delete-data` 可明确选择把它们纳入同一套可回滚卸载事务。
 
+## MySQL 服务
+
+MySQL 按 `major.minor` 版本线隔离数据、配置、DPAPI 凭据、日志、进程状态和端口，因此 5.7 与 8.4 可同时运行。8.4 默认使用 `3306`，5.7 默认使用 `3307`；停止实例后可修改端口，但不同实例不得重复。SoftPilot 不注册 Windows Service 或开机启动。
+
+首次启动先用 `--initialize-insecure` 创建离线数据目录，再通过禁用 TCP、启用 Windows shared memory 的临时进程设置随机 root 密码。常规启动要求 `SELECT VERSION()` 匹配目标版本，且监听 PID 属于刚启动的进程。明文密码只短暂存在于内存和客户端临时配置中，客户端命令行不包含密码。停止优先使用 `mysqladmin shutdown`；兜底终止仍须匹配目标版本的 PID、绝对路径和启动时间。卸载默认保留版本线数据，`--delete-data` 才将数据、配置、凭据和日志纳入可回滚事务。
+
+Visual C++ Runtime 是系统级共享组件，不进入 MySQL 的 staging 回滚或卸载范围；安装器要求重启时，本次 MySQL 安装会中止并提示重试。
+
 模块显示与排序会立即更新并串行保存，无需单独操作。
 
 ## 终端默认版本
 
-首次选择终端默认版本时保存用户 `PATH` 和 `JAVA_HOME`，再配置 SoftPilot shim、Node.js `current` 和 Java `JAVA_HOME`；始终不设置 `PYTHONHOME`。Redis 通过 `current\redis` 提供 `redis-server` 与 `redis-cli` shim，选择版本不会自动启动服务。清除最后一个选择时恢复快照。切换只替换 `current\<kind>`，核对实际版本并在失败时回滚。变更对新打开的终端生效。
+首次选择终端默认版本时保存用户 `PATH` 和 `JAVA_HOME`，再配置 SoftPilot shim、Node.js `current` 和 Java `JAVA_HOME`；始终不设置 `PYTHONHOME`。Redis 通过 `current\redis` 提供 `redis-server` 与 `redis-cli` shim；MySQL 通过 `current\mysql` 提供 `mysqld`、`mysql` 与 `mysqladmin` shim，选择版本都不会自动启动服务。清除最后一个选择时恢复快照。切换只替换 `current\<kind>`，核对实际版本并在失败时回滚。变更对新打开的终端生效。

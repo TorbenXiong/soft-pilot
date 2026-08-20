@@ -22,6 +22,7 @@ public sealed class CliApplication
     private readonly IDoctorService _doctor;
     private readonly ICacheService _cache;
     private readonly IRedisServiceManager _redis;
+    private readonly IMySqlServiceManager _mySql;
 
     public CliApplication(
         IEnumerable<IRuntimeProvider> providers,
@@ -32,7 +33,8 @@ public sealed class CliApplication
         IShellIntegrationService shell,
         IDoctorService doctor,
         ICacheService cache,
-        IRedisServiceManager redis)
+        IRedisServiceManager redis,
+        IMySqlServiceManager mySql)
     {
         _providers = providers.ToDictionary(provider => provider.Kind);
         _detectors = detectors.ToArray();
@@ -43,6 +45,7 @@ public sealed class CliApplication
         _doctor = doctor;
         _cache = cache;
         _redis = redis;
+        _mySql = mySql;
     }
 
     public Task<int> RunAsync(string[] args)
@@ -62,6 +65,7 @@ public sealed class CliApplication
         root.Subcommands.Add(BuildTaskCommand());
         root.Subcommands.Add(BuildCacheCommand());
         root.Subcommands.Add(BuildRedisCommand());
+        root.Subcommands.Add(BuildMySqlCommand());
         return root;
     }
 
@@ -80,7 +84,7 @@ public sealed class CliApplication
         var targetArgument = TargetArgument();
         var deleteDataOption = new Option<bool>("--delete-data")
         {
-            Description = "卸载 Redis 时同时永久删除该版本的数据和日志",
+            Description = "卸载 Redis 或 MySQL 时同时永久删除对应版本线的数据、配置、凭据和日志",
         };
         var command = new Command("uninstall", "卸载并删除已安装版本")
         {
@@ -95,7 +99,7 @@ public sealed class CliApplication
                 target,
                 new RuntimeUninstallOptions(deleteData),
                 cancellationToken);
-            Console.WriteLine($"uninstall {target} 完成。" + (deleteData ? " Redis 数据和日志已删除。" : string.Empty));
+            Console.WriteLine($"uninstall {target} 完成。" + (deleteData ? " 服务数据、配置、凭据和日志已删除。" : string.Empty));
         }));
         return command;
     }
@@ -118,7 +122,7 @@ public sealed class CliApplication
     {
         var kindArgument = new Argument<string?>("kind")
         {
-            Description = "node、java、python 或 redis；省略时查询全部",
+            Description = "node、java、python、redis 或 mysql；省略时查询全部",
             Arity = ArgumentArity.ZeroOrOne,
         };
         var jsonOption = JsonOption();
@@ -336,6 +340,101 @@ public sealed class CliApplication
         return redis;
     }
 
+    private Command BuildMySqlCommand()
+    {
+        var mysql = new Command("mysql", "管理本地 MySQL 服务");
+
+        var statusJson = JsonOption();
+        var status = new Command("status", "显示 MySQL 服务状态") { statusJson };
+        status.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        {
+            var values = await _mySql.GetStatusesAsync(cancellationToken);
+            Write(values, parseResult.GetValue(statusJson), item => item.IsRunning
+                ? $"running mysql@{item.Version} port={item.Port} pid={item.ProcessId} config={item.ConfigPath} data={item.DataPath} log={item.LogPath}"
+                : $"stopped mysql@{item.Version} port={item.Port}{(item.Problem is null ? string.Empty : $" problem={item.Problem}")}");
+        }));
+        mysql.Subcommands.Add(status);
+
+        var versionArgument = new Argument<string?>("version")
+        {
+            Description = "已安装的精确版本；省略时使用当前 MySQL 版本",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var start = new Command("start", "启动 MySQL 服务") { versionArgument };
+        start.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        {
+            var version = await ResolveServiceVersionAsync(
+                RuntimeKind.MySql,
+                parseResult.GetValue(versionArgument),
+                cancellationToken);
+            var value = await _mySql.StartAsync(version, cancellationToken);
+            Console.WriteLine($"MySQL {value.Version} 已启动，PID {value.ProcessId}。首次初始化会生成仅当前 Windows 用户可解密的 root 凭据；使用 spt mysql credentials 查看。");
+        }));
+        mysql.Subcommands.Add(start);
+
+        var stopVersionArgument = new Argument<string?>("version")
+        {
+            Description = "已安装的精确版本；省略时使用当前 MySQL 版本",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var stop = new Command("stop", "停止指定 MySQL 服务") { stopVersionArgument };
+        stop.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        {
+            var version = await ResolveServiceVersionAsync(
+                RuntimeKind.MySql,
+                parseResult.GetValue(stopVersionArgument),
+                cancellationToken);
+            await _mySql.StopAsync(version, cancellationToken);
+            Console.WriteLine($"MySQL {version} 已停止。");
+        }));
+        mysql.Subcommands.Add(stop);
+
+        var credentialsJson = JsonOption();
+        var credentialsVersion = new Argument<string?>("version")
+        {
+            Description = "已初始化的精确版本；省略时使用当前 MySQL 版本",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var credentials = new Command("credentials", "显示当前 Windows 用户可解密的本地 root 凭据")
+        {
+            credentialsVersion,
+            credentialsJson,
+        };
+        credentials.SetAction(async (parseResult, cancellationToken) => await GuardAsync(async () =>
+        {
+            var version = await ResolveServiceVersionAsync(
+                RuntimeKind.MySql,
+                parseResult.GetValue(credentialsVersion),
+                cancellationToken);
+            var value = await _mySql.GetCredentialsAsync(version, cancellationToken);
+            if (parseResult.GetValue(credentialsJson))
+            {
+                Console.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
+            }
+            else
+            {
+                Console.WriteLine($"host={value.Host}{Environment.NewLine}port={value.Port}{Environment.NewLine}user={value.UserName}{Environment.NewLine}password={value.Password}");
+            }
+        }));
+        mysql.Subcommands.Add(credentials);
+        return mysql;
+    }
+
+    private async Task<string> ResolveServiceVersionAsync(
+        RuntimeKind kind,
+        string? version,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(version))
+        {
+            return version;
+        }
+
+        var current = await _global.GetCurrentAsync(cancellationToken);
+        return current[kind]?.Version
+            ?? throw new SoftPilotException($"尚未选择当前 {kind} 版本；请传入版本或先执行 spt use {kind.ToString().ToLowerInvariant()}@<version> --global。");
+    }
+
     private static Command SimpleCommand(string name, string description, Func<CancellationToken, Task> action)
     {
         var command = new Command(name, description);
@@ -373,7 +472,7 @@ public sealed class CliApplication
 
     private static RuntimeTarget ParseTarget(string value) => RuntimeTarget.TryParse(value, out var target)
         ? target
-        : throw new ArgumentException("目标格式应为 <node|java|python|redis>@<exact-version>。");
+        : throw new ArgumentException("目标格式应为 <node|java|python|redis|mysql>@<exact-version>。");
 
     private static RuntimeKind ParseKind(string value) => Enum.TryParse<RuntimeKind>(value, true, out var kind)
         ? kind

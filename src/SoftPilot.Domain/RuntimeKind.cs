@@ -6,4 +6,5 @@ public enum RuntimeKind
     Java,
     Python,
     Redis,
+    MySql,
 }

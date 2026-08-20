@@ -23,6 +23,9 @@ public sealed class PortableToolsProvisionerTests
         Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "python3.exe")));
         Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "redis-server.exe")));
         Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "redis-cli.exe")));
+        Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "mysqld.exe")));
+        Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "mysql.exe")));
+        Assert.IsTrue(File.Exists(Path.Combine(tools, "shims", "mysqladmin.exe")));
     }
 
     [TestMethod]

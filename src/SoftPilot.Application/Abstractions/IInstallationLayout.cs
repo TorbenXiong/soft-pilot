@@ -20,5 +20,8 @@ public interface IInstallationLayout
     string GetTrashDirectory(RuntimeKind kind, string version, DateTimeOffset deletedAt);
     string GetRedisDataDirectory(string version);
     string GetRedisLogPath(string version);
+    string GetMySqlDataDirectory(string version);
+    string GetMySqlLogPath(string version);
+    string GetMySqlConfigPath(string version);
     void EnsureWorkspace();
 }
