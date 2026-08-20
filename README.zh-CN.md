@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-SoftPilot 是用于安装和管理多个 Node.js、Java、Python 与本地开发 Redis 版本的 Windows 便携式应用。
+SoftPilot 是用于管理 Node.js、Java、Python、本地开发 Redis，以及最新版便携 Git for Windows 的 Windows 便携式应用。
 
 ## 开始使用
 
@@ -15,7 +15,7 @@ SoftPilot 是用于安装和管理多个 Node.js、Java、Python 与本地开发
 
 ## 下载来源
 
-Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小流量 HTTPS 探测，并使用响应更快的来源。Python 始终使用官方来源。Redis 版本必须与 Redis 官方发布目录交叉核对；Windows x64 归档来自社区 `redis-windows/redis-windows` 项目，并强制校验 GitHub 提供的 SHA-256 摘要。
+Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小流量 HTTPS 探测，并使用响应更快的来源。Python 始终使用官方来源。Redis 版本必须与 Redis 官方发布目录交叉核对；Windows x64 归档来自社区 `redis-windows/redis-windows` 项目，并强制校验 GitHub 提供的 SHA-256 摘要。Git 使用 Git for Windows 官方 GitHub 仓库的最新版 x64 PortableGit 资产，同样强制校验 GitHub 提供的 SHA-256 摘要。
 
 ## 主要功能
 
@@ -27,6 +27,7 @@ Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小
 - 以只读方式发现 SoftPilot 外部安装的运行时。
 - 在对应版本旁直接展示下载进度和操作结果。
 - 永久卸载不再需要的版本。
+- 安装、启动、升级和卸载唯一一份最新版便携 Git for Windows，不修改用户 `PATH`，也不影响其他 Git 安装；Git 页面可检查 SSH 和 Git LFS 组件状态，并在用户明确保存时编辑全局 `user.name` 与 `user.email`。卸载保留统一下载缓存以及包括 `user.name`、`user.email` 在内的 Git 全局配置。
 - 模块显示与排序修改即时生效并自动保存。
 - 支持英文和简体中文即时切换，默认使用英文。
 
@@ -38,6 +39,9 @@ Node.js 与 Temurin 归档默认对官方源和内置清华 TUNA 镜像进行小
 - Eclipse Temurin HotSpot JDK Windows x64 版本
 - CPython Windows x64 版本
 - `redis-windows/redis-windows` 提供的 Redis x64 社区构建，仅用于本地开发
+- Git for Windows 最新 PortableGit x64 版本
+
+下载缓存统一保存在 `SoftPilotData\cache\downloads`。SoftPilot 每次启动时自动删除超过 30 天的缓存文件并清理空目录；各模块卸载不单独处理缓存。需要立即清空时仍可使用 `spt cache clean`。
 
 ## Redis CLI
 

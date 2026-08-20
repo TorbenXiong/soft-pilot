@@ -58,7 +58,8 @@ public sealed class HttpDownloadService : IDownloadService
             progress?.Report(new OperationProgress("source", null, $"已选择下载源：{source.DisplayName}"));
             try
             {
-                return await DownloadAsync(
+                EnsureHttps(source.Uri);
+                return await DownloadOnceAsync(
                     source.Uri,
                     destinationPath,
                     expectedSha256,
@@ -87,10 +88,38 @@ public sealed class HttpDownloadService : IDownloadService
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        if (!string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        EnsureHttps(source);
+
+        const int maximumAttempts = 3;
+        for (var attempt = 1; ; attempt++)
         {
-            throw new IntegrityException($"拒绝非 HTTPS 下载地址：{source}");
+            try
+            {
+                return await DownloadOnceAsync(
+                    source,
+                    destinationPath,
+                    expectedSha256,
+                    progress,
+                    cancellationToken);
+            }
+            catch (HttpRequestException) when (attempt < maximumAttempts)
+            {
+                progress?.Report(new OperationProgress(
+                    "download-retry",
+                    null,
+                    $"下载连接失败，正在进行第 {attempt + 1}/{maximumAttempts} 次尝试"));
+                await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), cancellationToken);
+            }
         }
+    }
+
+    private async Task<DownloadResult> DownloadOnceAsync(
+        Uri source,
+        string destinationPath,
+        string? expectedSha256,
+        IProgress<OperationProgress>? progress,
+        CancellationToken cancellationToken)
+    {
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destinationPath))!);
         var partialPath = destinationPath + $".{Guid.NewGuid():N}.partial";
@@ -261,6 +290,14 @@ public sealed class HttpDownloadService : IDownloadService
         if (expectedBytes.Length != 32 || !CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
         {
             throw new IntegrityException($"{source} 的 SHA-256 校验失败。");
+        }
+    }
+
+    private static void EnsureHttps(Uri source)
+    {
+        if (!string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IntegrityException($"拒绝非 HTTPS 下载地址：{source}");
         }
     }
 

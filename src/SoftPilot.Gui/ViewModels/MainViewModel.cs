@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using SoftPilot.Application;
 using SoftPilot.Application.Abstractions;
 using SoftPilot.Domain;
+using SoftPilot.Infrastructure.Providers;
 
 namespace SoftPilot.Gui.ViewModels;
 
@@ -18,6 +19,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IGlobalRuntimeService _global;
     private readonly IRuntimeModulePreferencesStore _modulePreferences;
     private readonly IRedisServiceManager _redisServices;
+    private readonly IGitService _gitBash;
     private IReadOnlyList<RuntimeRow> _allManagedRuntimes = [];
     private IReadOnlyList<RuntimeRow> _allExternalRuntimes = [];
     private readonly Dictionary<RuntimeKind, IReadOnlyList<RuntimeRelease>> _recommendedReleases = [];
@@ -28,6 +30,11 @@ public partial class MainViewModel : ObservableObject
     private bool _redisServiceStatusAvailable;
     private string? _runningRedisVersion;
     private string? _redisServiceProblem;
+    private GitRelease? _latestGitBashRelease;
+    private string? _gitBashLocalProblem;
+    private string? _gitBashRemoteProblem;
+    private string? _gitBashOperationProblem;
+    private string? _gitBashConfigurationProblem;
 
     public MainViewModel(
         IEnumerable<IExternalRuntimeDetector> detectors,
@@ -36,7 +43,8 @@ public partial class MainViewModel : ObservableObject
         IOperationCoordinator operations,
         IGlobalRuntimeService global,
         IRuntimeModulePreferencesStore modulePreferences,
-        IRedisServiceManager redisServices)
+        IRedisServiceManager redisServices,
+        IGitService gitBash)
     {
         _detectors = detectors.ToArray();
         _providers = providers.ToArray();
@@ -45,6 +53,7 @@ public partial class MainViewModel : ObservableObject
         _global = global;
         _modulePreferences = modulePreferences;
         _redisServices = redisServices;
+        _gitBash = gitBash;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
         InstallCommand = new AsyncRelayCommand(InstallAsync, CanInstall);
         UseSelectedCommand = new AsyncRelayCommand(UseSelectedAsync, CanUseSelected);
@@ -65,6 +74,7 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<RuntimeVersionRow> VersionRows { get; } = [];
     public ObservableCollection<TaskRow> Tasks { get; } = [];
     public ObservableCollection<RuntimeModuleSetting> ModuleSettings { get; } = [];
+    public ObservableCollection<GitEnvironmentCheckRow> GitEnvironmentChecks { get; } = [];
     public IReadOnlyList<LanguageOption> LanguageOptions { get; }
 
     public IAsyncRelayCommand RefreshCommand { get; }
@@ -98,6 +108,40 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool IsBusy { get; set; }
+
+    [ObservableProperty]
+    public partial bool IsGitBashOperating { get; private set; }
+
+    [ObservableProperty]
+    public partial bool GitBashIsInstalled { get; private set; }
+
+    [ObservableProperty]
+    public partial string GitBashInstalledVersion { get; private set; } = "—";
+
+    [ObservableProperty]
+    public partial string GitBashLatestVersion { get; private set; } = "—";
+
+    [ObservableProperty]
+    public partial string GitBashProblemText { get; private set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string GitBashOperationText { get; private set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial double GitBashOperationPercentage { get; private set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GitBashPathStatusVisibility))]
+    public partial string GitBashPathStatusText { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string GitUserName { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string GitUserEmail { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial bool IsGitConfigurationSaving { get; private set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CatalogLoadingVisibility))]
@@ -162,6 +206,63 @@ public partial class MainViewModel : ObservableObject
     public string LanguageText => T("语言", "Language");
     public string StartRedisText => T("启动", "Start");
     public string StopRedisText => T("停止", "Stop");
+    public string GitBashText => "Git";
+    public string GitBashInstalledVersionLabel => T("已安装版本", "Installed version");
+    public string GitBashLatestVersionLabel => T("官方最新版本", "Latest official version");
+    public string GitBashInstallPathLabel => T("安装路径", "Install path");
+    public string GitBashInstallPath => _gitBash.InstallDirectory;
+    public string GitBashLauncherPath => _gitBash.LauncherPath;
+    public string GitBashPrimaryActionText => GitBashIsInstalled ? T("升级", "Upgrade") : T("安装", "Install");
+    public string GitBashLaunchText => T("启动 Git Bash", "Launch Git Bash");
+    public string GitBashLaunchAsAdministratorText => T("启动 Git Bash(管理员)", "Run Git Bash as administrator");
+    public string GitBashUninstallText => T("卸载", "Uninstall");
+    public string GitCopyPathToolTip => T("复制安装路径", "Copy installation path");
+    public string GitBashConfigurationTitle => T("常用配置", "Common configuration");
+    public string GitUserNameLabel => T("用户名（user.name）", "User name (user.name)");
+    public string GitUserEmailLabel => T("邮箱（user.email）", "Email (user.email)");
+    public string GitUserNamePlaceholder => T("例如：张三", "For example: Jane Doe");
+    public string GitUserEmailPlaceholder => T("例如：name@example.com", "For example: name@example.com");
+    public string GitConfigurationSaveText => T("保存配置", "Save configuration");
+    public string GitConfigurationScopeText => T(
+        "保存后写入当前 Windows 用户的全局 Git 配置（~/.gitconfig）。留空会删除对应配置项。",
+        "Saves to the current Windows user's global Git configuration (~/.gitconfig). Leaving a field empty removes that setting.");
+    public string GitEnvironmentTitle => T("Git 组件", "Git components");
+    public string GitCheckItemHeader => T("组件", "Component");
+    public string GitCheckStatusHeader => T("状态", "Status");
+    public string GitCheckResultHeader => T("版本或结果", "Version or result");
+    public string GitBashReleasePageUrl => _latestGitBashRelease?.ReleasePageUri.AbsoluteUri ?? string.Empty;
+    public string GitBashDownloadUrl => _latestGitBashRelease?.DownloadUri.AbsoluteUri ?? string.Empty;
+    public bool GitBashUpdateAvailable => GitBashIsInstalled
+        && _latestGitBashRelease is not null
+        && !string.Equals(GitBashInstalledVersion, _latestGitBashRelease.Version, StringComparison.OrdinalIgnoreCase);
+    public Visibility GitBashPrimaryActionVisibility => !GitBashIsInstalled || GitBashUpdateAvailable
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility GitBashInstalledActionsVisibility => GitBashIsInstalled
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility GitBashOperationVisibility => string.IsNullOrWhiteSpace(GitBashOperationText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public Visibility GitBashProblemVisibility => string.IsNullOrWhiteSpace(GitBashProblemText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public Visibility GitBashProgressVisibility => IsGitBashOperating ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility GitBashReleasePageVisibility => _latestGitBashRelease is not null
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility GitBashPathStatusVisibility => string.IsNullOrWhiteSpace(GitBashPathStatusText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public bool CanRunGitBashAction => !IsBusy && !IsGitBashOperating && _latestGitBashRelease is not null;
+    public bool CanUseInstalledGitBash => GitBashIsInstalled && !IsBusy && !IsGitBashOperating;
+    public bool CanEditGitConfiguration => GitBashIsInstalled
+        && !IsBusy
+        && !IsGitBashOperating
+        && !IsGitConfigurationSaving;
+    public Visibility GitEnvironmentChecksVisibility => GitBashIsInstalled
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     public string RuntimeDisplayName => SelectedRuntimeKind switch
     {
@@ -212,6 +313,7 @@ public partial class MainViewModel : ObservableObject
         var preferencesWarning = await LoadModulePreferencesAsync();
         await RefreshRuntimeDataAsync(includeExternal: false);
         await RefreshRedisServiceStatusAsync();
+        await RefreshGitBashLocalStatusAsync();
         await LoadCachedRecommendedVersionsAsync();
         await RefreshTasksAsync();
         _ = RefreshStartupDataAsync(preferencesWarning);
@@ -227,10 +329,13 @@ public partial class MainViewModel : ObservableObject
                 var preferencesWarning = await LoadModulePreferencesAsync();
                 await RefreshRuntimeDataAsync(includeExternal: false);
                 await RefreshRedisServiceStatusAsync();
+                await RefreshGitBashLocalStatusAsync();
                 var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: true);
+                var gitBashWarning = await RefreshGitBashLatestAsync();
                 await RefreshTasksAsync();
                 var warnings = remoteWarnings
                     .Prepend(preferencesWarning)
+                    .Prepend(gitBashWarning)
                     .OfType<string>()
                     .ToArray();
                 if (warnings.Length > 0)
@@ -248,13 +353,198 @@ public partial class MainViewModel : ObservableObject
     private async Task RefreshStartupDataAsync(string? preferencesWarning)
     {
         var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: false);
+        var gitBashWarning = await RefreshGitBashLatestAsync();
         var warnings = remoteWarnings
             .Prepend(preferencesWarning)
+            .Prepend(gitBashWarning)
             .OfType<string>()
             .ToArray();
         if (warnings.Length > 0 && _recommendedReleases.Count == 0)
         {
             NotifyUser(T("加载未完全成功", "Loading incomplete"), string.Join(" ", warnings), isError: true);
+        }
+    }
+
+    private async Task RefreshGitBashLocalStatusAsync()
+    {
+        var status = await _gitBash.GetInstalledStatusAsync();
+        GitBashIsInstalled = status.IsInstalled;
+        GitBashInstalledVersion = status.Version ?? "—";
+        _gitBashLocalProblem = status.Problem;
+        IReadOnlyList<GitEnvironmentCheck> checks = status.IsInstalled
+            ? await _gitBash.GetEnvironmentChecksAsync()
+            : [];
+        Replace(
+            GitEnvironmentChecks,
+            checks.Select(check => new GitEnvironmentCheckRow(
+                GetGitEnvironmentCheckName(check.Name),
+                check.IsAvailable,
+                check.IsAvailable ? T("正常", "OK") : T("缺失", "Missing"),
+                check.IsAvailable
+                    ? new SolidColorBrush(Microsoft.UI.Colors.ForestGreen)
+                    : new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
+                check.Result)));
+        if (status.IsInstalled)
+        {
+            try
+            {
+                var configuration = await _gitBash.GetGlobalConfigurationAsync();
+                GitUserName = configuration.UserName;
+                GitUserEmail = configuration.UserEmail;
+                _gitBashConfigurationProblem = null;
+            }
+            catch (Exception exception)
+            {
+                _gitBashConfigurationProblem = T(
+                    $"读取配置失败：{GetDetailedExceptionMessage(exception)}",
+                    $"Unable to read configuration: {GetDetailedExceptionMessage(exception)}");
+            }
+        }
+        else
+        {
+            GitUserName = string.Empty;
+            GitUserEmail = string.Empty;
+            _gitBashConfigurationProblem = null;
+        }
+
+        UpdateGitBashProblemText();
+        NotifyGitBashProperties();
+    }
+
+    private async Task<string?> RefreshGitBashLatestAsync()
+    {
+        try
+        {
+            _latestGitBashRelease = await _gitBash.GetLatestReleaseAsync();
+            GitBashLatestVersion = _latestGitBashRelease.Version;
+            _gitBashRemoteProblem = null;
+            UpdateGitBashProblemText();
+            NotifyGitBashProperties();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            _latestGitBashRelease = null;
+            GitBashLatestVersion = T("加载失败", "Unavailable");
+            _gitBashRemoteProblem = T(
+                $"Git 最新版本加载失败：{exception.Message}",
+                $"Unable to load the latest Git release: {exception.Message}");
+            UpdateGitBashProblemText();
+            NotifyGitBashProperties();
+            return _gitBashRemoteProblem;
+        }
+    }
+
+    public async Task InstallOrUpgradeGitBashAsync()
+    {
+        if (!CanRunGitBashAction)
+        {
+            return;
+        }
+
+        IsGitBashOperating = true;
+        _gitBashOperationProblem = null;
+        UpdateGitBashProblemText();
+        GitBashOperationPercentage = 0;
+        GitBashOperationText = GitBashIsInstalled
+            ? T("等待升级…", "Waiting to upgrade…")
+            : T("等待安装…", "Waiting to install…");
+        NotifyGitBashProperties();
+        try
+        {
+            var progress = new Progress<OperationProgress>(value =>
+            {
+                GitBashOperationPercentage = value.Percentage ?? GitBashOperationPercentage;
+                GitBashOperationText = GetGitBashProgressText(value);
+                NotifyGitBashProperties();
+            });
+            await _gitBash.InstallOrUpgradeLatestAsync(progress);
+            await RefreshGitBashLocalStatusAsync();
+            GitBashOperationPercentage = 0;
+            GitBashOperationText = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _gitBashOperationProblem = GetDetailedExceptionMessage(exception);
+            UpdateGitBashProblemText();
+            GitBashOperationText = T("操作失败", "Operation failed");
+        }
+        finally
+        {
+            IsGitBashOperating = false;
+            await RefreshTasksAsync();
+            NotifyGitBashProperties();
+        }
+    }
+
+    public async Task SaveGitConfigurationAsync()
+    {
+        if (!CanEditGitConfiguration)
+        {
+            return;
+        }
+
+        IsGitConfigurationSaving = true;
+        NotifyCommands();
+        NotifyGitBashProperties();
+        try
+        {
+            await _gitBash.SaveGlobalConfigurationAsync(new GitGlobalConfiguration(
+                GitUserName,
+                GitUserEmail));
+            var configuration = await _gitBash.GetGlobalConfigurationAsync();
+            GitUserName = configuration.UserName;
+            GitUserEmail = configuration.UserEmail;
+            _gitBashConfigurationProblem = null;
+            UpdateGitBashProblemText();
+            NotifyUser(
+                T("保存成功", "Saved"),
+                T("Git 全局配置已保存。", "The global Git configuration was saved."),
+                isError: false,
+                autoDismiss: true);
+        }
+        catch (Exception exception)
+        {
+            var detail = GetDetailedExceptionMessage(exception);
+            NotifyUser(T("Git 配置保存失败", "Unable to save Git configuration"), detail, isError: true);
+        }
+        finally
+        {
+            IsGitConfigurationSaving = false;
+            NotifyCommands();
+            NotifyGitBashProperties();
+        }
+    }
+
+    public async Task UninstallGitBashAsync()
+    {
+        if (!CanUseInstalledGitBash)
+        {
+            return;
+        }
+
+        IsGitBashOperating = true;
+        _gitBashOperationProblem = null;
+        UpdateGitBashProblemText();
+        GitBashOperationText = T("正在卸载…", "Uninstalling…");
+        NotifyGitBashProperties();
+        try
+        {
+            await _gitBash.UninstallAsync();
+            await RefreshGitBashLocalStatusAsync();
+            GitBashOperationText = T("Git 已卸载", "Git was uninstalled");
+        }
+        catch (Exception exception)
+        {
+            _gitBashOperationProblem = exception.Message;
+            UpdateGitBashProblemText();
+            GitBashOperationText = T("卸载失败", "Uninstall failed");
+        }
+        finally
+        {
+            IsGitBashOperating = false;
+            await RefreshTasksAsync();
+            NotifyGitBashProperties();
         }
     }
 
@@ -316,6 +606,7 @@ public partial class MainViewModel : ObservableObject
         SelectedLanguage = option;
         NotifyLocalizedProperties();
         ApplyRuntimeFilter();
+        await RefreshGitBashLocalStatusAsync();
         await RefreshTasksAsync();
 
         try
@@ -611,19 +902,28 @@ public partial class MainViewModel : ObservableObject
             GetTaskStatusBrush(item.Status),
             GetTaskName(item.Name),
             GetTaskNameBrush(item.Name),
-            item.Kind is null ? "-" : $"{GetRuntimeDisplayName(item.Kind.Value)}@{item.Version}")));
+            item.Name.StartsWith("git-", StringComparison.OrdinalIgnoreCase)
+                ? $"Git@{item.Version ?? "-"}"
+                : item.Kind is null
+                    ? "-"
+                    : $"{GetRuntimeDisplayName(item.Kind.Value)}@{RuntimeVersionDisplayFormatter.Format(item.Kind.Value, item.Version ?? "-")}")));
     }
 
     private void ApplyRuntimeFilter()
     {
-        Replace(ManagedRuntimes, _allManagedRuntimes.Where(item => item.RuntimeKind == SelectedRuntimeKind));
-        Replace(ExternalRuntimes, _allExternalRuntimes.Where(item => item.RuntimeKind == SelectedRuntimeKind));
+        Replace(ManagedRuntimes, _allManagedRuntimes
+            .Where(item => item.RuntimeKind == SelectedRuntimeKind)
+            .OrderByDescending(item => item.Version, RuntimeVersionComparer.Instance));
+        Replace(ExternalRuntimes, _allExternalRuntimes
+            .Where(item => item.RuntimeKind == SelectedRuntimeKind)
+            .OrderByDescending(item => item.Version, RuntimeVersionComparer.Instance));
         var installed = _allManagedRuntimes
             .Where(item => item.RuntimeKind == SelectedRuntimeKind && !item.IsDeleted)
             .Select(item => CreateInstalledRuntimeRow(item, isManaged: true))
             .Concat(_allExternalRuntimes
                 .Where(item => item.RuntimeKind == SelectedRuntimeKind)
-                .Select(item => CreateInstalledRuntimeRow(item, isManaged: false)));
+                .Select(item => CreateInstalledRuntimeRow(item, isManaged: false)))
+            .OrderByDescending(item => item.Version, RuntimeVersionComparer.Instance);
         Replace(InstalledRuntimes, installed);
         OnPropertyChanged(nameof(InstalledRuntimesEmptyVisibility));
         SelectedRuntime = null;
@@ -764,7 +1064,7 @@ public partial class MainViewModel : ObservableObject
         var label = release.Kind switch
         {
             RuntimeKind.Node => $"Node.js {line} LTS — {release.Version}",
-            RuntimeKind.Java => $"JDK {line} LTS — {release.Version}",
+            RuntimeKind.Java => $"JDK {line} LTS — {RuntimeVersionDisplayFormatter.Format(release.Kind, release.Version)}",
             RuntimeKind.Python => T($"Python {line} 稳定版 — {release.Version}", $"Python {line} stable — {release.Version}"),
             RuntimeKind.Redis => T($"Redis {line} 稳定版 — {release.Version}", $"Redis {line} stable — {release.Version}"),
             _ => release.Version,
@@ -790,6 +1090,7 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         NotifyCommands();
         UpdateRedisServiceRows();
+        NotifyGitBashProperties();
         try
         {
             await action();
@@ -816,10 +1117,11 @@ public partial class MainViewModel : ObservableObject
             IsBusy = false;
             NotifyCommands();
             UpdateRedisServiceRows();
+            NotifyGitBashProperties();
         }
     }
 
-    private bool CanRun() => !IsBusy;
+    private bool CanRun() => !IsBusy && !IsGitConfigurationSaving;
     private bool CanInstall() => !IsBusy && SelectedRecommendedVersion is { IsManaged: false };
     private bool CanUseSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
     private bool CanUninstallSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
@@ -966,6 +1268,8 @@ public partial class MainViewModel : ObservableObject
     {
         "install" => T("安装", "Install"),
         "uninstall" => T("卸载", "Uninstall"),
+        "git-install" => T("Git 安装/升级", "Git install/upgrade"),
+        "git-uninstall" => T("Git 卸载", "Git uninstall"),
         "restore" => T("恢复（历史）", "Restore (history)"),
         _ => name,
     };
@@ -973,7 +1277,9 @@ public partial class MainViewModel : ObservableObject
     private static Brush GetTaskNameBrush(string name) => name.ToLowerInvariant() switch
     {
         "install" => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
+        "git-install" => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
         "uninstall" => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
+        "git-uninstall" => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
         _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
     };
 
@@ -1008,8 +1314,49 @@ public partial class MainViewModel : ObservableObject
 
     private string T(string chinese, string english) => IsEnglish ? english : chinese;
 
-    private void NotifyUser(string title, string message, bool isError) =>
-        NotificationRequested?.Invoke(new UserNotification(title, message, isError));
+    private string GetGitBashProgressText(OperationProgress progress) => progress.Stage.ToLowerInvariant() switch
+    {
+        "download" => T("正在下载并校验 Git…", "Downloading and verifying Git…"),
+        "download-retry" => T(progress.Detail ?? "下载连接失败，正在重试…", "Download connection failed. Retrying…"),
+        "extract" => T("正在解包 Git…", "Extracting Git…"),
+        "health" => T("正在核对实际版本…", "Verifying the installed version…"),
+        "commit" => T("正在提交安装目录…", "Committing the installation…"),
+        "complete" => string.Empty,
+        _ => progress.Detail ?? T("正在处理…", "Working…"),
+    };
+
+    private static string GetGitEnvironmentCheckName(string name) => name;
+
+    private void NotifyGitBashProperties()
+    {
+        string[] properties =
+        [
+            nameof(GitBashPrimaryActionText), nameof(GitBashUpdateAvailable),
+            nameof(GitBashPrimaryActionVisibility),
+            nameof(GitBashInstalledActionsVisibility), nameof(GitBashOperationVisibility),
+            nameof(GitBashProblemVisibility), nameof(GitBashProgressVisibility),
+            nameof(GitBashReleasePageUrl), nameof(GitBashDownloadUrl), nameof(GitBashReleasePageVisibility),
+            nameof(GitBashPathStatusVisibility),
+            nameof(CanRunGitBashAction), nameof(CanUseInstalledGitBash),
+            nameof(CanEditGitConfiguration), nameof(GitEnvironmentChecksVisibility),
+        ];
+        foreach (var property in properties)
+        {
+            OnPropertyChanged(property);
+        }
+    }
+
+    private void UpdateGitBashProblemText()
+    {
+        GitBashProblemText = string.Join(
+            Environment.NewLine,
+            new[] { _gitBashLocalProblem, _gitBashRemoteProblem, _gitBashOperationProblem }
+                .Append(_gitBashConfigurationProblem)
+                .Where(problem => !string.IsNullOrWhiteSpace(problem)));
+    }
+
+    private void NotifyUser(string title, string message, bool isError, bool autoDismiss = false) =>
+        NotificationRequested?.Invoke(new UserNotification(title, message, isError, autoDismiss));
 
     private void NotifyLocalizedProperties()
     {
@@ -1026,11 +1373,38 @@ public partial class MainViewModel : ObservableObject
             nameof(ModulesText), nameof(ModuleAutoSaveText), nameof(LanguageText),
             nameof(StartRedisText), nameof(StopRedisText),
             nameof(RuntimeInstallDescription),
+            nameof(GitBashInstalledVersionLabel),
+            nameof(GitBashLatestVersionLabel), nameof(GitBashInstallPathLabel),
+            nameof(GitBashPrimaryActionText), nameof(GitBashLaunchText),
+            nameof(GitBashLaunchAsAdministratorText), nameof(GitBashUninstallText), nameof(GitCopyPathToolTip),
+            nameof(GitBashConfigurationTitle),
+            nameof(GitUserNameLabel), nameof(GitUserEmailLabel),
+            nameof(GitUserNamePlaceholder), nameof(GitUserEmailPlaceholder),
+            nameof(GitConfigurationSaveText), nameof(GitConfigurationScopeText),
+            nameof(GitEnvironmentTitle), nameof(GitCheckItemHeader),
+            nameof(GitCheckStatusHeader), nameof(GitCheckResultHeader),
         ];
         foreach (var property in properties)
         {
             OnPropertyChanged(property);
         }
+
+        NotifyGitBashProperties();
+    }
+
+    private static string GetDetailedExceptionMessage(Exception exception)
+    {
+        var messages = new List<string>();
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message)
+                && !messages.Contains(current.Message, StringComparer.Ordinal))
+            {
+                messages.Add(current.Message.Trim());
+            }
+        }
+
+        return string.Join(" → ", messages);
     }
 
     private void SetRuntimeProgress(RuntimeTarget target, OperationProgress progress)
@@ -1252,7 +1626,13 @@ public sealed record RuntimeRow(
     string Path,
     RuntimeKind RuntimeKind,
     bool IsCurrent,
-    bool IsDeleted);
+    bool IsDeleted)
+{
+    public string DisplayVersion => RuntimeVersionDisplayFormatter.Format(RuntimeKind, Version);
+    public string VersionToolTip => string.Equals(DisplayVersion, Version, StringComparison.Ordinal)
+        ? DisplayVersion
+        : $"{DisplayVersion} · {Version}";
+}
 
 public sealed record RuntimeVersionOption(string Version, string DisplayName, bool IsManaged);
 
@@ -1291,6 +1671,10 @@ public sealed class RuntimeVersionRow : ObservableObject
     public RuntimeKind RuntimeKind { get; }
     public string ReleaseLine { get; }
     public string Version { get; }
+    public string DisplayVersion => RuntimeVersionDisplayFormatter.Format(RuntimeKind, Version);
+    public string VersionToolTip => string.Equals(DisplayVersion, Version, StringComparison.Ordinal)
+        ? DisplayVersion
+        : $"{DisplayVersion} · {Version}";
     public string State { get; }
     public bool IsManaged { get; }
     public bool IsCurrent { get; }
@@ -1371,6 +1755,10 @@ public sealed class InstalledRuntimeRow : ObservableObject
 
     public RuntimeKind RuntimeKind { get; }
     public string Version { get; }
+    public string DisplayVersion => RuntimeVersionDisplayFormatter.Format(RuntimeKind, Version);
+    public string VersionToolTip => string.Equals(DisplayVersion, Version, StringComparison.Ordinal)
+        ? DisplayVersion
+        : $"{DisplayVersion} · {Version}";
     public string Path { get; }
     public bool IsManaged { get; }
     public bool IsCurrent { get; }
@@ -1534,7 +1922,18 @@ public sealed record TaskRow(
 
 public sealed record LanguageOption(string Code, string DisplayName);
 
-public sealed record UserNotification(string Title, string Message, bool IsError);
+public sealed record GitEnvironmentCheckRow(
+    string Name,
+    bool IsAvailable,
+    string Status,
+    Brush StatusBrush,
+    string Result);
+
+public sealed record UserNotification(
+    string Title,
+    string Message,
+    bool IsError,
+    bool AutoDismiss = false);
 
 internal sealed record RuntimeCatalogResult(
     RuntimeKind Kind,
