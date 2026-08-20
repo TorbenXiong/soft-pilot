@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IGlobalRuntimeService _global;
     private readonly IRuntimeModulePreferencesStore _modulePreferences;
     private readonly IRedisServiceManager _redisServices;
+    private readonly IMySqlServiceManager _mySqlServices;
     private readonly IGitService _gitBash;
     private IReadOnlyList<RuntimeRow> _allManagedRuntimes = [];
     private IReadOnlyList<RuntimeRow> _allExternalRuntimes = [];
@@ -26,10 +27,15 @@ public partial class MainViewModel : ObservableObject
     private readonly Dictionary<RuntimeTarget, RuntimeOperationFeedback> _runtimeFeedback = [];
     private readonly HashSet<RuntimeTarget> _installingTargets = [];
     private readonly SemaphoreSlim _modulePreferencesSaveGate = new(1, 1);
+    private int _moduleSaveStatusGeneration;
     private bool _modulePreferencesLoaded;
     private bool _redisServiceStatusAvailable;
     private string? _runningRedisVersion;
     private string? _redisServiceProblem;
+    private bool _mySqlServiceStatusAvailable;
+    private IReadOnlyDictionary<string, MySqlServiceStatus> _mySqlServiceStatuses =
+        new Dictionary<string, MySqlServiceStatus>(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<RuntimeTarget> _serviceOperationTargets = [];
     private GitRelease? _latestGitBashRelease;
     private string? _gitBashLocalProblem;
     private string? _gitBashRemoteProblem;
@@ -44,6 +50,7 @@ public partial class MainViewModel : ObservableObject
         IGlobalRuntimeService global,
         IRuntimeModulePreferencesStore modulePreferences,
         IRedisServiceManager redisServices,
+        IMySqlServiceManager mySqlServices,
         IGitService gitBash)
     {
         _detectors = detectors.ToArray();
@@ -53,6 +60,7 @@ public partial class MainViewModel : ObservableObject
         _global = global;
         _modulePreferences = modulePreferences;
         _redisServices = redisServices;
+        _mySqlServices = mySqlServices;
         _gitBash = gitBash;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
         InstallCommand = new AsyncRelayCommand(InstallAsync, CanInstall);
@@ -88,8 +96,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RuntimeDisplayName))]
     [NotifyPropertyChangedFor(nameof(RuntimeInstallDescription))]
-    [NotifyPropertyChangedFor(nameof(RedisServiceColumnWidth))]
-    [NotifyPropertyChangedFor(nameof(RedisServiceColumnVisibility))]
+    [NotifyPropertyChangedFor(nameof(ServiceColumnWidth))]
+    [NotifyPropertyChangedFor(nameof(ServiceColumnVisibility))]
+    [NotifyPropertyChangedFor(nameof(PortColumnWidth))]
+    [NotifyPropertyChangedFor(nameof(PortColumnVisibility))]
     public partial RuntimeKind SelectedRuntimeKind { get; private set; } = RuntimeKind.Node;
 
     [ObservableProperty]
@@ -102,6 +112,8 @@ public partial class MainViewModel : ObservableObject
     public bool JavaModuleEnabled => IsModuleEnabled(RuntimeKind.Java);
     public bool PythonModuleEnabled => IsModuleEnabled(RuntimeKind.Python);
     public bool RedisModuleEnabled => IsModuleEnabled(RuntimeKind.Redis);
+    public bool MySqlModuleEnabled => IsModuleEnabled(RuntimeKind.MySql);
+    public bool GitModuleEnabled => IsModuleEnabled(ModuleKind.Git);
 
     [ObservableProperty]
     public partial LanguageOption? SelectedLanguage { get; private set; }
@@ -175,10 +187,18 @@ public partial class MainViewModel : ObservableObject
     public Visibility JavaModuleVisibility => JavaModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility PythonModuleVisibility => PythonModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RedisModuleVisibility => RedisModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
-    public GridLength RedisServiceColumnWidth => SelectedRuntimeKind == RuntimeKind.Redis
+    public Visibility MySqlModuleVisibility => MySqlModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility GitModuleVisibility => GitModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
+    public GridLength ServiceColumnWidth => IsServiceRuntime(SelectedRuntimeKind)
         ? new GridLength(110)
         : new GridLength(0);
-    public Visibility RedisServiceColumnVisibility => SelectedRuntimeKind == RuntimeKind.Redis
+    public Visibility ServiceColumnVisibility => IsServiceRuntime(SelectedRuntimeKind)
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public GridLength PortColumnWidth => IsServiceRuntime(SelectedRuntimeKind)
+        ? new GridLength(140)
+        : new GridLength(0);
+    public Visibility PortColumnVisibility => IsServiceRuntime(SelectedRuntimeKind)
         ? Visibility.Visible
         : Visibility.Collapsed;
     public bool IsEnglish => SelectedLanguage?.Code == "en-US";
@@ -196,6 +216,7 @@ public partial class MainViewModel : ObservableObject
     public string ReleaseLineHeaderText => T("版本线", "Release line");
     public string IsInstalledHeaderText => T("是否安装", "Installed");
     public string ServiceHeaderText => T("服务", "Service");
+    public string PortHeaderText => T("端口", "Port");
     public string OperationHeaderText => T("操作", "Action");
     public string TimeHeaderText => T("时间", "Time");
     public string StatusHeaderText => T("状态", "Status");
@@ -270,6 +291,7 @@ public partial class MainViewModel : ObservableObject
         RuntimeKind.Java => "Java",
         RuntimeKind.Python => "Python",
         RuntimeKind.Redis => "Redis",
+        RuntimeKind.MySql => "MySQL",
         _ => SelectedRuntimeKind.ToString(),
     };
 
@@ -287,13 +309,18 @@ public partial class MainViewModel : ObservableObject
         RuntimeKind.Redis => T(
             "版本来自 Redis 官方发布目录，Windows x64 归档由 redis-windows 社区项目构建，仅建议用于本地开发。",
             "Versions are cross-checked with official Redis releases. Windows x64 archives are community builds from redis-windows and are intended for local development."),
+        RuntimeKind.MySql => T(
+            "提供 Oracle 官方 Windows x64 ZIP：MySQL 8.4 LTS 为推荐线，5.7.44 仅用于兼容旧项目。缺少兼容的 Visual C++ x64 Runtime 时会验证 Microsoft 签名并请求管理员授权安装。",
+            "Provides official Oracle Windows x64 ZIP archives. MySQL 8.4 LTS is recommended; 5.7.44 is retained only for legacy compatibility. If needed, a Microsoft-signed Visual C++ x64 Runtime is installed with administrator approval."),
         _ => T("从官方目录选择推荐版本。", "Select a recommended version from the official catalog."),
     };
 
-    public bool IsModuleEnabled(RuntimeKind kind) =>
+    public bool IsModuleEnabled(RuntimeKind kind) => IsModuleEnabled(ToModuleKind(kind));
+
+    public bool IsModuleEnabled(ModuleKind kind) =>
         ModuleSettings.FirstOrDefault(item => item.Kind == kind)?.IsEnabled == true;
 
-    public IReadOnlyList<RuntimeKind> GetOrderedModuleKinds() =>
+    public IReadOnlyList<ModuleKind> GetOrderedModuleKinds() =>
         ModuleSettings.Select(item => item.Kind).ToArray();
 
     public void SelectRuntimeModule(RuntimeKind kind)
@@ -312,7 +339,7 @@ public partial class MainViewModel : ObservableObject
     {
         var preferencesWarning = await LoadModulePreferencesAsync();
         await RefreshRuntimeDataAsync(includeExternal: false);
-        await RefreshRedisServiceStatusAsync();
+        await RefreshServiceStatusesAsync();
         await RefreshGitBashLocalStatusAsync();
         await LoadCachedRecommendedVersionsAsync();
         await RefreshTasksAsync();
@@ -328,7 +355,7 @@ public partial class MainViewModel : ObservableObject
             {
                 var preferencesWarning = await LoadModulePreferencesAsync();
                 await RefreshRuntimeDataAsync(includeExternal: false);
-                await RefreshRedisServiceStatusAsync();
+                await RefreshServiceStatusesAsync();
                 await RefreshGitBashLocalStatusAsync();
                 var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: true);
                 var gitBashWarning = await RefreshGitBashLatestAsync();
@@ -761,6 +788,33 @@ public partial class MainViewModel : ObservableObject
         });
     }
 
+    public Task<MySqlCredentials> GetMySqlCredentialsAsync(string version) =>
+        _mySqlServices.GetCredentialsAsync(version);
+
+    public async Task SaveMySqlPortAsync(InstalledRuntimeRow row)
+    {
+        if (IsBusy || _serviceOperationTargets.Contains(new RuntimeTarget(row.RuntimeKind, row.Version))
+            || !row.TryGetEditedPort(out var port))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await _mySqlServices.SetConfiguredPortAsync(row.Version, port);
+            row.CommitPort(port);
+            NotifyUser(
+                T("端口已保存", "Port saved"),
+                T($"MySQL {row.Version} 将使用端口 {port}", $"MySQL {row.Version} will use port {port}"),
+                isError: false,
+                autoDismiss: true);
+        }, showSuccessOrFailureDialog: false,
+        onError: exception => NotifyUser(
+            T("端口保存失败", "Unable to save port"),
+            exception.Message,
+            isError: true));
+    }
+
     private Task UninstallSelectedAsync() =>
         UninstallRuntimeAsync(SelectedRuntime!.RuntimeKind, SelectedRuntime.Version);
 
@@ -788,7 +842,7 @@ public partial class MainViewModel : ObservableObject
     private async Task RefreshCoreAsync()
     {
         await RefreshRuntimeDataAsync(includeExternal: false);
-        await RefreshRedisServiceStatusAsync();
+        await RefreshServiceStatusesAsync();
         await RefreshTasksAsync();
         SelectedRuntime = null;
     }
@@ -902,7 +956,7 @@ public partial class MainViewModel : ObservableObject
             GetTaskStatusBrush(item.Status),
             GetTaskName(item.Name),
             GetTaskNameBrush(item.Name),
-            item.Name.StartsWith("git-", StringComparison.OrdinalIgnoreCase)
+            IsGitOperation(item)
                 ? $"Git@{item.Version ?? "-"}"
                 : item.Kind is null
                     ? "-"
@@ -957,6 +1011,9 @@ public partial class MainViewModel : ObservableObject
                 RuntimeKind.Redis => T(
                     "显示每个可验证 Redis 主版本线的最新稳定补丁；Windows 归档来自 redis-windows 社区构建并校验 GitHub SHA-256。",
                     "Shows the latest stable patch for every verifiable Redis major line. Windows archives are redis-windows community builds verified with GitHub SHA-256 digests."),
+                RuntimeKind.MySql => T(
+                    "推荐 MySQL 8.4 LTS；5.7.44 已停止常规支持，仅用于无法升级的旧项目。官方归档会验证 OpenPGP 签名。",
+                    "MySQL 8.4 LTS is recommended. 5.7.44 is out of regular support and is offered only for legacy projects. Official archives are verified with OpenPGP."),
                 _ => T("已从官方目录筛选推荐版本。", "Recommended versions were selected from the official catalog."),
             };
         ApplyVersionRows();
@@ -1010,6 +1067,9 @@ public partial class MainViewModel : ObservableObject
             RuntimeKind.Java => $"Temurin JDK {line} LTS",
             RuntimeKind.Python => T($"Python {line} 稳定版", $"Python {line} stable"),
             RuntimeKind.Redis => T($"Redis {line} 稳定版", $"Redis {line} stable"),
+            RuntimeKind.MySql => line == "8.4"
+                ? "MySQL 8.4 LTS"
+                : T("MySQL 5.7 兼容版（已停止常规支持）", "MySQL 5.7 legacy (regular support ended)"),
             _ => GetRuntimeDisplayName(SelectedRuntimeKind),
         };
         var state = managed switch
@@ -1038,6 +1098,13 @@ public partial class MainViewModel : ObservableObject
     private InstalledRuntimeRow CreateInstalledRuntimeRow(RuntimeRow item, bool isManaged)
     {
         var feedback = GetRuntimeFeedback(new RuntimeTarget(item.RuntimeKind, item.Version));
+        var servicePort = item.RuntimeKind switch
+        {
+            RuntimeKind.MySql when isManaged => _mySqlServices.GetConfiguredPort(item.Version),
+            RuntimeKind.MySql => 3306,
+            RuntimeKind.Redis => 6379,
+            _ => 0,
+        };
         var row = new InstalledRuntimeRow(
             item.RuntimeKind,
             item.Version,
@@ -1050,8 +1117,11 @@ public partial class MainViewModel : ObservableObject
             GetEnvironmentActionToolTip(item.RuntimeKind, item.IsCurrent),
             T("卸载", "Uninstall"),
             T("复制路径", "Copy path"),
+            T($"复制 MySQL {item.Version} 的 root 密码", $"Copy the root password for MySQL {item.Version}"),
+            servicePort,
+            T("保存端口", "Save port"),
             feedback);
-        UpdateRedisServiceRow(row);
+        UpdateServiceRow(row);
         return row;
     }
 
@@ -1067,6 +1137,9 @@ public partial class MainViewModel : ObservableObject
             RuntimeKind.Java => $"JDK {line} LTS — {RuntimeVersionDisplayFormatter.Format(release.Kind, release.Version)}",
             RuntimeKind.Python => T($"Python {line} 稳定版 — {release.Version}", $"Python {line} stable — {release.Version}"),
             RuntimeKind.Redis => T($"Redis {line} 稳定版 — {release.Version}", $"Redis {line} stable — {release.Version}"),
+            RuntimeKind.MySql => line == "8.4"
+                ? $"MySQL 8.4 LTS — {release.Version}"
+                : T($"MySQL 5.7 兼容版 — {release.Version}", $"MySQL 5.7 legacy — {release.Version}"),
             _ => release.Version,
         };
         if (managed is not null)
@@ -1089,7 +1162,7 @@ public partial class MainViewModel : ObservableObject
 
         IsBusy = true;
         NotifyCommands();
-        UpdateRedisServiceRows();
+        UpdateServiceRows();
         NotifyGitBashProperties();
         try
         {
@@ -1116,7 +1189,7 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
             NotifyCommands();
-            UpdateRedisServiceRows();
+            UpdateServiceRows();
             NotifyGitBashProperties();
         }
     }
@@ -1126,55 +1199,87 @@ public partial class MainViewModel : ObservableObject
     private bool CanUseSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
     private bool CanUninstallSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
 
-    public async Task StartInstalledRedisAsync(InstalledRuntimeRow row)
+    public async Task StartInstalledServiceAsync(InstalledRuntimeRow row)
     {
-        if (IsBusy || !row.CanStartRedisService)
+        var target = new RuntimeTarget(row.RuntimeKind, row.Version);
+        if (IsBusy || !row.CanStartService || !_serviceOperationTargets.Add(target))
         {
             return;
         }
 
-        await RunBusyAsync(async () =>
+        UpdateServiceRows();
+        try
         {
             try
             {
-                await _redisServices.StartAsync(row.Version);
+                if (row.RuntimeKind == RuntimeKind.MySql)
+                {
+                    await _mySqlServices.StartAsync(row.Version);
+                }
+                else
+                {
+                    await _redisServices.StartAsync(row.Version);
+                }
             }
-            finally
+            catch (Exception exception)
             {
-                await RefreshRedisServiceStatusAsync();
+                NotifyUser(
+                row.RuntimeKind == RuntimeKind.MySql
+                    ? T("MySQL 启动失败", "Unable to start MySQL")
+                    : T("Redis 启动失败", "Unable to start Redis"),
+                exception.Message,
+                isError: true);
             }
-        }, showSuccessOrFailureDialog: false,
-        onError: exception => NotifyUser(
-            T("Redis 启动失败", "Unable to start Redis"),
-            exception.Message,
-            isError: true));
+        }
+        finally
+        {
+            _serviceOperationTargets.Remove(target);
+            await RefreshServiceStatusesAsync();
+            UpdateServiceRows();
+        }
     }
 
-    public async Task StopInstalledRedisAsync(InstalledRuntimeRow row)
+    public async Task StopInstalledServiceAsync(InstalledRuntimeRow row)
     {
-        if (IsBusy || !row.CanStopRedisService)
+        var target = new RuntimeTarget(row.RuntimeKind, row.Version);
+        if (IsBusy || !row.CanStopService || !_serviceOperationTargets.Add(target))
         {
             return;
         }
 
-        await RunBusyAsync(async () =>
+        UpdateServiceRows();
+        try
         {
             try
             {
-                await _redisServices.StopAsync();
+                if (row.RuntimeKind == RuntimeKind.MySql)
+                {
+                    await _mySqlServices.StopAsync(row.Version);
+                }
+                else
+                {
+                    await _redisServices.StopAsync();
+                }
             }
-            finally
+            catch (Exception exception)
             {
-                await RefreshRedisServiceStatusAsync();
+                NotifyUser(
+                row.RuntimeKind == RuntimeKind.MySql
+                    ? T("MySQL 停止失败", "Unable to stop MySQL")
+                    : T("Redis 停止失败", "Unable to stop Redis"),
+                exception.Message,
+                isError: true);
             }
-        }, showSuccessOrFailureDialog: false,
-        onError: exception => NotifyUser(
-            T("Redis 停止失败", "Unable to stop Redis"),
-            exception.Message,
-            isError: true));
+        }
+        finally
+        {
+            _serviceOperationTargets.Remove(target);
+            await RefreshServiceStatusesAsync();
+            UpdateServiceRows();
+        }
     }
 
-    private async Task RefreshRedisServiceStatusAsync()
+    private async Task RefreshServiceStatusesAsync()
     {
         try
         {
@@ -1190,23 +1295,59 @@ public partial class MainViewModel : ObservableObject
             _redisServiceProblem = exception.Message;
         }
 
-        UpdateRedisServiceRows();
+        try
+        {
+            var statuses = await _mySqlServices.GetStatusesAsync();
+            _mySqlServiceStatusAvailable = true;
+            _mySqlServiceStatuses = statuses
+                .Where(status => status.Version is not null)
+                .ToDictionary(status => status.Version!, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception exception)
+        {
+            _mySqlServiceStatusAvailable = false;
+            _mySqlServiceStatuses = new Dictionary<string, MySqlServiceStatus>(StringComparer.OrdinalIgnoreCase)
+            {
+                [string.Empty] = new MySqlServiceStatus(false, Problem: exception.Message),
+            };
+        }
+        UpdateServiceRows();
     }
 
-    private void UpdateRedisServiceRows()
+    private void UpdateServiceRows()
     {
         foreach (var row in InstalledRuntimes)
         {
-            UpdateRedisServiceRow(row);
+            UpdateServiceRow(row);
         }
     }
 
-    private void UpdateRedisServiceRow(InstalledRuntimeRow row)
+    private void UpdateServiceRow(InstalledRuntimeRow row)
     {
-        row.UpdateRedisServiceState(
+        if (row.RuntimeKind == RuntimeKind.MySql)
+        {
+            _mySqlServiceStatuses.TryGetValue(row.Version, out var status);
+            var operationInProgress = _serviceOperationTargets.Contains(
+                new RuntimeTarget(RuntimeKind.MySql, row.Version));
+            row.UpdateServiceState(
+                _mySqlServiceStatusAvailable && status is not null,
+                status?.IsRunning == true,
+                IsBusy || operationInProgress,
+                operationInProgress,
+                status?.Problem ?? (_mySqlServiceStatuses.TryGetValue(string.Empty, out var unavailable) ? unavailable.Problem : null),
+                StartRedisText,
+                StopRedisText,
+                row.IsManaged
+                    ? T("MySQL 服务状态不可用", "MySQL service status unavailable")
+                    : T("外部 MySQL 仅支持只读发现", "External MySQL installations are read-only"));
+            return;
+        }
+
+        row.UpdateServiceState(
             _redisServiceStatusAvailable,
             string.Equals(row.Version, _runningRedisVersion, StringComparison.OrdinalIgnoreCase),
-            IsBusy,
+            IsBusy || _serviceOperationTargets.Any(target => target.Kind == RuntimeKind.Redis),
+            _serviceOperationTargets.Contains(new RuntimeTarget(RuntimeKind.Redis, row.Version)),
             _redisServiceProblem,
             StartRedisText,
             StopRedisText,
@@ -1219,6 +1360,7 @@ public partial class MainViewModel : ObservableObject
     {
         ApplyRuntimeFilter();
     }
+
     partial void OnSelectedRecommendedVersionChanged(RuntimeVersionOption? value) => InstallCommand.NotifyCanExecuteChanged();
     partial void OnSelectedRuntimeChanged(RuntimeRow? value) => NotifyCommands();
 
@@ -1228,13 +1370,17 @@ public partial class MainViewModel : ObservableObject
         RuntimeKind.Java => "Java",
         RuntimeKind.Python => "Python",
         RuntimeKind.Redis => "Redis",
+        RuntimeKind.MySql => "MySQL",
         _ => kind.ToString(),
     };
+
+    private static bool IsServiceRuntime(RuntimeKind kind) =>
+        kind is RuntimeKind.Redis or RuntimeKind.MySql;
 
     private static string GetReleaseLine(RuntimeKind kind, string version)
     {
         var parts = version.Split('.');
-        return kind == RuntimeKind.Python && parts.Length >= 2
+        return kind is RuntimeKind.Python or RuntimeKind.MySql && parts.Length >= 2
             ? $"{parts[0]}.{parts[1]}"
             : parts[0];
     }
@@ -1267,21 +1413,28 @@ public partial class MainViewModel : ObservableObject
     private string GetTaskName(string name) => name.ToLowerInvariant() switch
     {
         "install" => T("安装", "Install"),
+        "upgrade" => T("升级", "Upgrade"),
         "uninstall" => T("卸载", "Uninstall"),
-        "git-install" => T("Git 安装/升级", "Git install/upgrade"),
-        "git-uninstall" => T("Git 卸载", "Git uninstall"),
+        "git-install" or "git-bash-install" => T("安装", "Install"),
+        "git-upgrade" or "git-bash-upgrade" => T("升级", "Upgrade"),
+        "git-uninstall" or "git-bash-uninstall" => T("卸载", "Uninstall"),
         "restore" => T("恢复（历史）", "Restore (history)"),
         _ => name,
     };
 
     private static Brush GetTaskNameBrush(string name) => name.ToLowerInvariant() switch
     {
-        "install" => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
-        "git-install" => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
-        "uninstall" => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
-        "git-uninstall" => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
+        "install" or "upgrade" or "git-install" or "git-upgrade" or "git-bash-install" or "git-bash-upgrade"
+            => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
+        "uninstall" or "git-uninstall" or "git-bash-uninstall"
+            => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
         _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
     };
+
+    private static bool IsGitOperation(OperationRecord operation) =>
+        operation.Kind is null
+        && (operation.Name is "install" or "upgrade" or "uninstall"
+            || operation.Name.StartsWith("git-", StringComparison.OrdinalIgnoreCase));
 
     private string GetEnvironmentActionToolTip(RuntimeKind kind, bool isCurrent)
     {
@@ -1306,6 +1459,9 @@ public partial class MainViewModel : ObservableObject
             RuntimeKind.Redis => T(
                 "将 current\\redis 指向此版本，使 redis-server 和 redis-cli 命令入口使用它；服务启动和停止在已安装版本的“服务”列中单独管理。",
                 "Point current\\redis to this version for the redis-server and redis-cli command entries. Start and stop the service separately from the Service column in Installed versions."),
+            RuntimeKind.MySql => T(
+                "将 current\\mysql 指向此版本，使 mysqld、mysql 和 mysqladmin 命令入口使用它；服务启动和停止在“服务”列中单独管理。",
+                "Point current\\mysql to this version for the mysqld, mysql, and mysqladmin command entries. Start and stop the service separately from the Service column."),
             _ => T(
                 "将此版本设为 SoftPilot 当前使用的版本；不会重新安装或删除版本。",
                 "Set this as the version currently used by SoftPilot. No version is reinstalled or removed."),
@@ -1426,6 +1582,10 @@ public partial class MainViewModel : ObservableObject
                 "prepare" => "Preparing…",
                 "resolve" => "Resolving version…",
                 "manager" => "Preparing Python Install Manager…",
+                "prerequisite-check" => "Checking Microsoft Visual C++ Runtime…",
+                "prerequisite-download" => "Downloading Microsoft Visual C++ Runtime…",
+                "prerequisite-verify" => "Verifying Microsoft installer signature…",
+                "prerequisite-install" => "Installing Microsoft Visual C++ Runtime…",
                 "download" => "Downloading…",
                 "source" => progress.Detail ?? "Selecting download source…",
                 "extract" => "Extracting…",
@@ -1516,7 +1676,9 @@ public partial class MainViewModel : ObservableObject
         IsModuleEnabled(RuntimeKind.Python),
         language ?? SelectedLanguage?.Code ?? "en-US",
         GetOrderedModuleKinds(),
-        IsModuleEnabled(RuntimeKind.Redis));
+        IsModuleEnabled(RuntimeKind.Redis),
+        IsModuleEnabled(RuntimeKind.MySql),
+        IsModuleEnabled(ModuleKind.Git));
 
     private void ReplaceModuleSettings(RuntimeModulePreferences preferences)
     {
@@ -1530,8 +1692,8 @@ public partial class MainViewModel : ObservableObject
         {
             var setting = new RuntimeModuleSetting(
                 kind,
-                GetRuntimeDisplayName(kind),
-                GetRuntimeIconPath(kind),
+                GetModuleDisplayName(kind),
+                GetModuleIconPath(kind),
                 preferences.IsEnabled(kind));
             setting.PropertyChanged += OnModuleSettingPropertyChanged;
             ModuleSettings.Add(setting);
@@ -1540,13 +1702,36 @@ public partial class MainViewModel : ObservableObject
         NotifyModuleVisibilityChanged();
     }
 
-    private static string GetRuntimeIconPath(RuntimeKind kind) => kind switch
+    private static string GetModuleDisplayName(ModuleKind kind) => kind switch
     {
-        RuntimeKind.Node => "ms-appx:///Assets/RuntimeIcons/nodejs.svg",
-        RuntimeKind.Java => "ms-appx:///Assets/RuntimeIcons/java.svg",
-        RuntimeKind.Python => "ms-appx:///Assets/RuntimeIcons/python.svg",
-        RuntimeKind.Redis => "ms-appx:///Assets/RuntimeIcons/redis.svg",
+        ModuleKind.Node => "Node.js",
+        ModuleKind.Java => "Java",
+        ModuleKind.Python => "Python",
+        ModuleKind.Redis => "Redis",
+        ModuleKind.MySql => "MySQL",
+        ModuleKind.Git => "Git",
+        _ => kind.ToString(),
+    };
+
+    private static string GetModuleIconPath(ModuleKind kind) => kind switch
+    {
+        ModuleKind.Node => "ms-appx:///Assets/RuntimeIcons/nodejs.svg",
+        ModuleKind.Java => "ms-appx:///Assets/RuntimeIcons/java.svg",
+        ModuleKind.Python => "ms-appx:///Assets/RuntimeIcons/python.svg",
+        ModuleKind.Redis => "ms-appx:///Assets/RuntimeIcons/redis.svg",
+        ModuleKind.MySql => "ms-appx:///Assets/RuntimeIcons/mysql.svg",
+        ModuleKind.Git => "ms-appx:///Assets/RuntimeIcons/git.svg",
         _ => string.Empty,
+    };
+
+    private static ModuleKind ToModuleKind(RuntimeKind kind) => kind switch
+    {
+        RuntimeKind.Node => ModuleKind.Node,
+        RuntimeKind.Java => ModuleKind.Java,
+        RuntimeKind.Python => ModuleKind.Python,
+        RuntimeKind.Redis => ModuleKind.Redis,
+        RuntimeKind.MySql => ModuleKind.MySql,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
     private void OnModuleSettingPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1580,14 +1765,17 @@ public partial class MainViewModel : ObservableObject
         await _modulePreferencesSaveGate.WaitAsync();
         try
         {
+            var generation = ++_moduleSaveStatusGeneration;
             ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.DodgerBlue);
             ModuleSaveStatusText = T("正在保存…", "Saving…");
             await _modulePreferences.SaveAsync(CreateModulePreferences());
             ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
             ModuleSaveStatusText = T("已保存", "Saved");
+            _ = ClearModuleSaveStatusAfterDelayAsync(generation);
         }
         catch (Exception exception)
         {
+            _moduleSaveStatusGeneration++;
             ModuleSaveStatusBrush = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
             ModuleSaveStatusText = T($"保存失败：{exception.Message}", $"Unable to save: {exception.Message}");
         }
@@ -1597,16 +1785,29 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private async Task ClearModuleSaveStatusAfterDelayAsync(int generation)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        if (generation == _moduleSaveStatusGeneration)
+        {
+            ModuleSaveStatusText = string.Empty;
+        }
+    }
+
     private void NotifyModuleVisibilityChanged()
     {
         OnPropertyChanged(nameof(NodeModuleEnabled));
         OnPropertyChanged(nameof(JavaModuleEnabled));
         OnPropertyChanged(nameof(PythonModuleEnabled));
         OnPropertyChanged(nameof(RedisModuleEnabled));
+        OnPropertyChanged(nameof(MySqlModuleEnabled));
+        OnPropertyChanged(nameof(GitModuleEnabled));
         OnPropertyChanged(nameof(NodeModuleVisibility));
         OnPropertyChanged(nameof(JavaModuleVisibility));
         OnPropertyChanged(nameof(PythonModuleVisibility));
         OnPropertyChanged(nameof(RedisModuleVisibility));
+        OnPropertyChanged(nameof(MySqlModuleVisibility));
+        OnPropertyChanged(nameof(GitModuleVisibility));
     }
 
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> values)
@@ -1721,13 +1922,16 @@ public sealed class InstalledRuntimeRow : ObservableObject
 {
     private RuntimeOperationFeedback? _feedback;
     private string _pathStatusText = string.Empty;
-    private bool _redisServiceStatusAvailable;
-    private bool _isRedisServiceRunning;
-    private bool _isRedisServiceBusy;
-    private string? _redisServiceProblem;
-    private string _startRedisText = "Start";
-    private string _stopRedisText = "Stop";
-    private string _redisServiceUnavailableText = "Redis service status unavailable";
+    private bool _serviceStatusAvailable;
+    private bool _isServiceRunning;
+    private bool _isServiceControlBusy;
+    private bool _isServiceOperationInProgress;
+    private string? _serviceProblem;
+    private string _startServiceText = "Start";
+    private string _stopServiceText = "Stop";
+    private string _serviceUnavailableText = "Service status unavailable";
+    private int _configuredPort;
+    private string _portText;
 
     public InstalledRuntimeRow(
         RuntimeKind runtimeKind,
@@ -1739,6 +1943,9 @@ public sealed class InstalledRuntimeRow : ObservableObject
         string environmentActionToolTip,
         string uninstallText,
         string copyPathToolTip,
+        string copyMySqlPasswordToolTip,
+        int servicePort,
+        string savePortText,
         RuntimeOperationFeedback? feedback)
     {
         RuntimeKind = runtimeKind;
@@ -1750,6 +1957,10 @@ public sealed class InstalledRuntimeRow : ObservableObject
         EnvironmentActionToolTip = environmentActionToolTip;
         UninstallText = uninstallText;
         CopyPathToolTip = copyPathToolTip;
+        CopyMySqlPasswordToolTip = copyMySqlPasswordToolTip;
+        _configuredPort = servicePort;
+        _portText = servicePort > 0 ? servicePort.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
+        SavePortText = savePortText;
         _feedback = feedback;
     }
 
@@ -1766,39 +1977,77 @@ public sealed class InstalledRuntimeRow : ObservableObject
     public string EnvironmentActionToolTip { get; }
     public string UninstallText { get; }
     public string CopyPathToolTip { get; }
-    public GridLength RedisServiceColumnWidth => RuntimeKind == RuntimeKind.Redis
+    public string CopyMySqlPasswordToolTip { get; }
+    public string SavePortText { get; }
+    private bool IsServiceRuntime => RuntimeKind is RuntimeKind.Redis or RuntimeKind.MySql;
+    private string ServiceName => RuntimeKind == RuntimeKind.MySql ? "MySQL" : "Redis";
+    public GridLength ServiceColumnWidth => IsServiceRuntime
         ? new GridLength(110)
         : new GridLength(0);
-    public Visibility RedisServiceColumnVisibility => RuntimeKind == RuntimeKind.Redis
+    public Visibility ServiceColumnVisibility => IsServiceRuntime
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public bool CanStartRedisService => RuntimeKind == RuntimeKind.Redis
+    public bool CanStartService => IsServiceRuntime
         && IsManaged
-        && _redisServiceStatusAvailable
-        && !_isRedisServiceRunning
-        && !_isRedisServiceBusy;
-    public bool CanStopRedisService => RuntimeKind == RuntimeKind.Redis
+        && _serviceStatusAvailable
+        && !_isServiceRunning;
+    public bool CanStopService => IsServiceRuntime
         && IsManaged
-        && _redisServiceStatusAvailable
-        && _isRedisServiceRunning
-        && !_isRedisServiceBusy;
-    public Visibility StartRedisServiceVisibility => CanStartRedisService ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility StopRedisServiceVisibility => CanStopRedisService ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility RedisServiceProgressVisibility => RuntimeKind == RuntimeKind.Redis && IsManaged && _isRedisServiceBusy
+        && _serviceStatusAvailable
+        && _isServiceRunning;
+    public bool IsServiceActionEnabled => !_isServiceControlBusy;
+    public Visibility StartServiceVisibility => CanStartService && !_isServiceOperationInProgress
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public Visibility RedisServiceUnavailableVisibility => RuntimeKind == RuntimeKind.Redis
-        && (!IsManaged || !_redisServiceStatusAvailable)
-        && !_isRedisServiceBusy
+    public Visibility StopServiceVisibility => CanStopService && !_isServiceOperationInProgress
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public string StartRedisToolTip => _redisServiceProblem is null
-        ? $"{_startRedisText} Redis {Version}"
-        : $"{_startRedisText} Redis {Version} · {_redisServiceProblem}";
-    public string StopRedisToolTip => $"{_stopRedisText} Redis {Version}";
-    public string RedisServiceUnavailableToolTip => IsManaged && !string.IsNullOrWhiteSpace(_redisServiceProblem)
-        ? $"{_redisServiceUnavailableText}: {_redisServiceProblem}"
-        : _redisServiceUnavailableText;
+    public Visibility ServiceProgressVisibility => IsServiceRuntime && IsManaged && _isServiceOperationInProgress
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public GridLength PortColumnWidth => IsServiceRuntime ? new GridLength(140) : new GridLength(0);
+    public Visibility PortColumnVisibility => IsServiceRuntime ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility MySqlPortEditorVisibility => RuntimeKind == RuntimeKind.MySql && IsManaged
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility FixedPortVisibility => IsServiceRuntime && (RuntimeKind != RuntimeKind.MySql || !IsManaged)
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public string PortText
+    {
+        get => _portText;
+        set
+        {
+            if (SetProperty(ref _portText, value))
+            {
+                OnPropertyChanged(nameof(CanSavePort));
+            }
+        }
+    }
+    public bool CanEditPort => RuntimeKind == RuntimeKind.MySql
+        && IsManaged
+        && !_isServiceRunning
+        && !_isServiceControlBusy;
+    public bool CanSavePort => CanEditPort
+        && int.TryParse(_portText, out var port)
+        && port is >= 1 and <= 65535
+        && port != _configuredPort;
+    public Visibility ServiceUnavailableVisibility => IsServiceRuntime
+        && (!IsManaged || !_serviceStatusAvailable)
+        && !_isServiceOperationInProgress
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility CopyMySqlPasswordVisibility => RuntimeKind == RuntimeKind.MySql && IsManaged
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public bool CanCopyMySqlPassword => RuntimeKind == RuntimeKind.MySql && IsManaged && !_isServiceControlBusy;
+    public string StartServiceToolTip => _serviceProblem is null
+        ? $"{_startServiceText} {ServiceName} {Version}"
+        : $"{_startServiceText} {ServiceName} {Version} · {_serviceProblem}";
+    public string StopServiceToolTip => $"{_stopServiceText} {ServiceName} {Version}";
+    public string ServiceUnavailableToolTip => IsManaged && !string.IsNullOrWhiteSpace(_serviceProblem)
+        ? $"{_serviceUnavailableText}: {_serviceProblem}"
+        : _serviceUnavailableText;
     public bool CanToggleEnvironment => IsManaged;
     public bool CanUninstall => IsManaged && !IsCurrent;
     public Visibility SetEnvironmentVisibility => IsManaged && !IsCurrent ? Visibility.Visible : Visibility.Collapsed;
@@ -1835,31 +2084,46 @@ public sealed class InstalledRuntimeRow : ObservableObject
         OnPropertyChanged(nameof(PathStatusVisibility));
     }
 
-    public void UpdateRedisServiceState(
+    public bool TryGetEditedPort(out int port) =>
+        int.TryParse(_portText, out port) && port is >= 1 and <= 65535;
+
+    public void CommitPort(int port)
+    {
+        _configuredPort = port;
+        PortText = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public void UpdateServiceState(
         bool statusAvailable,
         bool isRunning,
-        bool isBusy,
+        bool isControlBusy,
+        bool isOperationInProgress,
         string? problem,
         string startText,
         string stopText,
         string unavailableText)
     {
-        _redisServiceStatusAvailable = statusAvailable;
-        _isRedisServiceRunning = isRunning;
-        _isRedisServiceBusy = isBusy;
-        _redisServiceProblem = problem;
-        _startRedisText = startText;
-        _stopRedisText = stopText;
-        _redisServiceUnavailableText = unavailableText;
-        OnPropertyChanged(nameof(CanStartRedisService));
-        OnPropertyChanged(nameof(CanStopRedisService));
-        OnPropertyChanged(nameof(StartRedisServiceVisibility));
-        OnPropertyChanged(nameof(StopRedisServiceVisibility));
-        OnPropertyChanged(nameof(RedisServiceProgressVisibility));
-        OnPropertyChanged(nameof(RedisServiceUnavailableVisibility));
-        OnPropertyChanged(nameof(StartRedisToolTip));
-        OnPropertyChanged(nameof(StopRedisToolTip));
-        OnPropertyChanged(nameof(RedisServiceUnavailableToolTip));
+        _serviceStatusAvailable = statusAvailable;
+        _isServiceRunning = isRunning;
+        _isServiceControlBusy = isControlBusy;
+        _isServiceOperationInProgress = isOperationInProgress;
+        _serviceProblem = problem;
+        _startServiceText = startText;
+        _stopServiceText = stopText;
+        _serviceUnavailableText = unavailableText;
+        OnPropertyChanged(nameof(CanStartService));
+        OnPropertyChanged(nameof(CanStopService));
+        OnPropertyChanged(nameof(IsServiceActionEnabled));
+        OnPropertyChanged(nameof(StartServiceVisibility));
+        OnPropertyChanged(nameof(StopServiceVisibility));
+        OnPropertyChanged(nameof(ServiceProgressVisibility));
+        OnPropertyChanged(nameof(ServiceUnavailableVisibility));
+        OnPropertyChanged(nameof(CanCopyMySqlPassword));
+        OnPropertyChanged(nameof(CanEditPort));
+        OnPropertyChanged(nameof(CanSavePort));
+        OnPropertyChanged(nameof(StartServiceToolTip));
+        OnPropertyChanged(nameof(StopServiceToolTip));
+        OnPropertyChanged(nameof(ServiceUnavailableToolTip));
     }
 }
 
@@ -1896,7 +2160,7 @@ internal static class RuntimeFeedbackBrushes
 
 public sealed partial class RuntimeModuleSetting : ObservableObject
 {
-    public RuntimeModuleSetting(RuntimeKind kind, string displayName, string iconPath, bool isEnabled)
+    public RuntimeModuleSetting(ModuleKind kind, string displayName, string iconPath, bool isEnabled)
     {
         Kind = kind;
         DisplayName = displayName;
@@ -1904,7 +2168,7 @@ public sealed partial class RuntimeModuleSetting : ObservableObject
         IsEnabled = isEnabled;
     }
 
-    public RuntimeKind Kind { get; }
+    public ModuleKind Kind { get; }
     public string DisplayName { get; }
     public string IconPath { get; }
 

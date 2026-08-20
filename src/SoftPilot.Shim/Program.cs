@@ -58,6 +58,9 @@ static ShimInvocation Resolve(string name, string root)
         "pip" => new(Path.Combine(current, "python", "python.exe"), ["-m", "pip"]),
         "redis-server" => new(Path.Combine(current, "redis", "redis-server.exe"), []),
         "redis-cli" => new(Path.Combine(current, "redis", "redis-cli.exe"), []),
+        "mysqld" => new(Path.Combine(current, "mysql", "bin", "mysqld.exe"), []),
+        "mysql" => new(Path.Combine(current, "mysql", "bin", "mysql.exe"), []),
+        "mysqladmin" => new(Path.Combine(current, "mysql", "bin", "mysqladmin.exe"), []),
         _ => throw new InvalidOperationException($"未知 SoftPilot shim 名称：{name}"),
     };
 }

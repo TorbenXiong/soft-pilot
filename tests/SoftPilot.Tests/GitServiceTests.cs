@@ -86,6 +86,13 @@ public sealed class GitServiceTests
     }
 
     [TestMethod]
+    public void GetInstallOperationName_DistinguishesInstallAndUpgrade()
+    {
+        Assert.AreEqual("install", GitService.GetInstallOperationName(isInstalled: false));
+        Assert.AreEqual("upgrade", GitService.GetInstallOperationName(isInstalled: true));
+    }
+
+    [TestMethod]
     [DataRow(RuntimeKind.Java, "21.0.12+8.0.LTS", "21.0.12")]
     [DataRow(RuntimeKind.Java, "17.0.20+8", "17.0.20")]
     [DataRow(RuntimeKind.Node, "24.19.0", "24.19.0")]

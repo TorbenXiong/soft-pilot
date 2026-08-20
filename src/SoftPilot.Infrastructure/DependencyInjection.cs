@@ -54,8 +54,12 @@ public static class DependencyInjection
         services.AddSingleton<TemurinRuntimeProvider>();
         services.AddSingleton<PythonRuntimeProvider>();
         services.AddSingleton<RedisRuntimeProvider>();
+        services.AddSingleton<MySqlRuntimeProvider>();
+        services.AddSingleton<MySqlPrerequisiteInstaller>();
         services.AddSingleton<RedisServiceManager>();
         services.AddSingleton<IRedisServiceManager>(provider => provider.GetRequiredService<RedisServiceManager>());
+        services.AddSingleton<MySqlServiceManager>();
+        services.AddSingleton<IMySqlServiceManager>(provider => provider.GetRequiredService<MySqlServiceManager>());
         services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
             provider.GetRequiredService<NodeRuntimeProvider>(),
             provider.GetRequiredService<RuntimeCatalogCache>()));
@@ -67,6 +71,9 @@ public static class DependencyInjection
             provider.GetRequiredService<RuntimeCatalogCache>()));
         services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
             provider.GetRequiredService<RedisRuntimeProvider>(),
+            provider.GetRequiredService<RuntimeCatalogCache>()));
+        services.AddSingleton<IRuntimeProvider>(provider => new CachedRuntimeProvider(
+            provider.GetRequiredService<MySqlRuntimeProvider>(),
             provider.GetRequiredService<RuntimeCatalogCache>()));
 
         services.AddSingleton<IExternalRuntimeDetector>(provider =>
@@ -87,6 +94,11 @@ public static class DependencyInjection
         services.AddSingleton<IExternalRuntimeDetector>(provider =>
             new WindowsExternalRuntimeDetector(
                 RuntimeKind.Redis,
+                provider.GetRequiredService<ProcessRunner>(),
+                provider.GetRequiredService<IInstallationLayout>()));
+        services.AddSingleton<IExternalRuntimeDetector>(provider =>
+            new WindowsExternalRuntimeDetector(
+                RuntimeKind.MySql,
                 provider.GetRequiredService<ProcessRunner>(),
                 provider.GetRequiredService<IInstallationLayout>()));
         return services;

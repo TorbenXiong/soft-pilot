@@ -305,7 +305,7 @@
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Stretch" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Margin" Value="0,0,12,0" />
+                <Setter Property="Margin" Value="0,0,12,12" />
             </Style>
         </NavigationView.Resources>
         <NavigationView.MenuItems>
@@ -337,7 +337,15 @@
                     <ImageIcon Source="Assets/RuntimeIcons/redis.svg" Width="20" Height="20" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem x:Name="MySqlNavigationItem" Content="MySQL" Tag="runtime:mysql"
+                                Visibility="{x:Bind ViewModel.MySqlModuleVisibility, Mode=OneWay}"
+                                AutomationProperties.Name="MySQL module">
+                <NavigationViewItem.Icon>
+                    <ImageIcon Source="Assets/RuntimeIcons/mysql.svg" Width="20" Height="20" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem x:Name="GitBashNavigationItem" Content="Git" Tag="git"
+                                Visibility="{x:Bind ViewModel.GitModuleVisibility, Mode=OneWay}"
                                 AutomationProperties.Name="Git module">
                 <NavigationViewItem.Icon>
                     <ImageIcon Source="Assets/RuntimeIcons/git.svg" Width="20" Height="20" Foreground="#F03C2E" />
@@ -388,7 +396,7 @@
                               HorizontalScrollMode="Disabled"
                               HorizontalScrollBarVisibility="Disabled"
                               HorizontalContentAlignment="Stretch">
-                    <StackPanel HorizontalAlignment="Stretch">
+                    <StackPanel HorizontalAlignment="Stretch" Spacing="12">
                         <Border Background="{ThemeResource SoftPilotCardBackground}" CornerRadius="12" Padding="8,8,8,16">
                             <StackPanel Spacing="12">
                                 <StackPanel>
@@ -423,7 +431,8 @@
                                                                 <ColumnDefinition Width="135" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="120" />
-                                                                <ColumnDefinition Width="{x:Bind ViewModel.RedisServiceColumnWidth, Mode=OneWay}" />
+                                                                <ColumnDefinition Width="{x:Bind ViewModel.PortColumnWidth, Mode=OneWay}" />
+                                                                <ColumnDefinition Width="{x:Bind ViewModel.ServiceColumnWidth, Mode=OneWay}" />
                                                                 <ColumnDefinition Width="120" />
                                                             </Grid.ColumnDefinitions>
                                                             <TextBlock Text="{x:Bind ViewModel.VersionHeaderText, Mode=OneWay}"
@@ -433,11 +442,15 @@
                                                             <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.EnvironmentHeaderText, Mode=OneWay}"
                                                                        Style="{StaticResource RuntimeTableHeaderTextStyle}"
                                                                        HorizontalAlignment="Center" />
-                                                            <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.ServiceHeaderText, Mode=OneWay}"
-                                                                       Visibility="{x:Bind ViewModel.RedisServiceColumnVisibility, Mode=OneWay}"
+                                                            <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.PortHeaderText, Mode=OneWay}"
+                                                                       Visibility="{x:Bind ViewModel.PortColumnVisibility, Mode=OneWay}"
                                                                        Style="{StaticResource RuntimeTableHeaderTextStyle}"
                                                                        HorizontalAlignment="Center" />
-                                                            <TextBlock Grid.Column="4" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
+                                                            <TextBlock Grid.Column="4" Text="{x:Bind ViewModel.ServiceHeaderText, Mode=OneWay}"
+                                                                       Visibility="{x:Bind ViewModel.ServiceColumnVisibility, Mode=OneWay}"
+                                                                       Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                                       HorizontalAlignment="Center" />
+                                                            <TextBlock Grid.Column="5" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
                                                                        Style="{StaticResource RuntimeTableHeaderTextStyle}"
                                                                        HorizontalAlignment="Center" />
                                                         </Grid>
@@ -452,12 +465,25 @@
                                                                     <ColumnDefinition Width="135" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="120" />
-                                                                    <ColumnDefinition Width="{Binding RedisServiceColumnWidth}" />
+                                                                    <ColumnDefinition Width="{Binding PortColumnWidth}" />
+                                                                    <ColumnDefinition Width="{Binding ServiceColumnWidth}" />
                                                                     <ColumnDefinition Width="120" />
                                                                 </Grid.ColumnDefinitions>
-                                                                <TextBlock Text="{Binding DisplayVersion}"
-                                                                           ToolTipService.ToolTip="{Binding VersionToolTip}"
-                                                                           Style="{StaticResource RuntimeTableCellTextStyle}" />
+                                                                <StackPanel Orientation="Horizontal" Spacing="6"
+                                                                            VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding DisplayVersion}"
+                                                                               ToolTipService.ToolTip="{Binding VersionToolTip}"
+                                                                               Style="{StaticResource RuntimeTableCellTextStyle}" />
+                                                                    <Button Style="{StaticResource IconButtonStyle}"
+                                                                            Width="32" Height="32" Padding="0"
+                                                                            Visibility="{Binding CopyMySqlPasswordVisibility}"
+                                                                            IsEnabled="{Binding CanCopyMySqlPassword}"
+                                                                            Click="OnCopyMySqlPasswordClick"
+                                                                            ToolTipService.ToolTip="{Binding CopyMySqlPasswordToolTip}"
+                                                                            AutomationProperties.Name="{Binding CopyMySqlPasswordToolTip}">
+                                                                        <FontIcon Glyph="&#xE8D7;" FontSize="14" />
+                                                                    </Button>
+                                                                </StackPanel>
                                                                 <Grid Grid.Column="1" ColumnSpacing="4">
                                                                     <Grid.ColumnDefinitions>
                                                                         <ColumnDefinition Width="*" />
@@ -505,35 +531,58 @@
                                                                                FontSize="13" TextWrapping="Wrap"
                                                                                TextAlignment="Center" HorizontalAlignment="Center" />
                                                                 </StackPanel>
-                                                                <Grid Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                      Visibility="{Binding RedisServiceColumnVisibility}">
+                                                                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4"
+                                                                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                            Visibility="{Binding PortColumnVisibility}">
+                                                                    <TextBlock Text="{Binding PortText}" VerticalAlignment="Center"
+                                                                               Visibility="{Binding FixedPortVisibility}" />
+                                                                    <TextBox Text="{Binding PortText, Mode=TwoWay}"
+                                                                             Width="66" Height="34" Padding="8,4"
+                                                                             HorizontalContentAlignment="Center"
+                                                                             IsEnabled="{Binding CanEditPort}"
+                                                                             Visibility="{Binding MySqlPortEditorVisibility}"
+                                                                             AutomationProperties.Name="MySQL port" />
+                                                                    <Button Width="34" Height="34" Padding="0"
+                                                                            Style="{StaticResource IconButtonStyle}"
+                                                                            IsEnabled="{Binding CanSavePort}"
+                                                                            Visibility="{Binding MySqlPortEditorVisibility}"
+                                                                            Click="OnSaveMySqlPortClick"
+                                                                            ToolTipService.ToolTip="{Binding SavePortText}"
+                                                                            AutomationProperties.Name="{Binding SavePortText}">
+                                                                        <FontIcon Glyph="&#xE74E;" FontSize="14" />
+                                                                    </Button>
+                                                                </StackPanel>
+                                                                <Grid Grid.Column="4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                      Visibility="{Binding ServiceColumnVisibility}">
                                                                     <controls:StableCursorButton Style="{StaticResource RedisServiceButtonStyle}"
-                                                                                                 Visibility="{Binding StartRedisServiceVisibility}"
-                                                                                                 Click="OnStartInstalledRedisClick"
-                                                                                                 ToolTipService.ToolTip="{Binding StartRedisToolTip}"
-                                                                                                 AutomationProperties.Name="{Binding StartRedisToolTip}">
+                                                                                                 Visibility="{Binding StartServiceVisibility}"
+                                                                                                 IsEnabled="{Binding IsServiceActionEnabled}"
+                                                                                                 Click="OnStartInstalledServiceClick"
+                                                                                                 ToolTipService.ToolTip="{Binding StartServiceToolTip}"
+                                                                                                 AutomationProperties.Name="{Binding StartServiceToolTip}">
                                                                         <Path Width="29" Height="32"
                                                                               Data="M 2,1 L 28,16 L 2,31 Z"
                                                                               Stretch="Fill"
                                                                               Fill="{StaticResource RedisStartBrush}" />
                                                                     </controls:StableCursorButton>
                                                                     <controls:StableCursorButton Style="{StaticResource RedisServiceButtonStyle}"
-                                                                                                 Visibility="{Binding StopRedisServiceVisibility}"
-                                                                                                 Click="OnStopInstalledRedisClick"
-                                                                                                 ToolTipService.ToolTip="{Binding StopRedisToolTip}"
-                                                                                                 AutomationProperties.Name="{Binding StopRedisToolTip}">
+                                                                                                 Visibility="{Binding StopServiceVisibility}"
+                                                                                                 IsEnabled="{Binding IsServiceActionEnabled}"
+                                                                                                 Click="OnStopInstalledServiceClick"
+                                                                                                 ToolTipService.ToolTip="{Binding StopServiceToolTip}"
+                                                                                                 AutomationProperties.Name="{Binding StopServiceToolTip}">
                                                                         <Grid Width="34" Height="34">
                                                                             <Ellipse Fill="{StaticResource RedisStopBrush}" />
                                                                             <FontIcon Glyph="&#xE7E8;" FontSize="22" Foreground="White" />
                                                                         </Grid>
                                                                     </controls:StableCursorButton>
                                                                     <ProgressRing Width="22" Height="22" IsActive="True"
-                                                                                  Visibility="{Binding RedisServiceProgressVisibility}" />
+                                                                                  Visibility="{Binding ServiceProgressVisibility}" />
                                                                     <TextBlock Text="—" Foreground="{ThemeResource SoftPilotSubtleText}"
-                                                                               Visibility="{Binding RedisServiceUnavailableVisibility}"
-                                                                               ToolTipService.ToolTip="{Binding RedisServiceUnavailableToolTip}" />
+                                                                               Visibility="{Binding ServiceUnavailableVisibility}"
+                                                                               ToolTipService.ToolTip="{Binding ServiceUnavailableToolTip}" />
                                                                 </Grid>
-                                                                <StackPanel Grid.Column="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                <StackPanel Grid.Column="5" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                                     <controls:StableHyperlinkButton Content="{Binding UninstallText}"
                                                                                                     Style="{StaticResource RuntimeOperationButtonStyle}"
                                                                                                     Visibility="{Binding UninstallVisibility}"
@@ -613,6 +662,7 @@
                                                                         <TextBlock Text="{Binding OperationStatusText}"
                                                                                    Visibility="{Binding FeedbackVisibility}"
                                                                                    Foreground="{Binding OperationStatusBrush}"
+                                                                                   ToolTipService.ToolTip="{Binding OperationStatusText}"
                                                                                    FontSize="13" TextTrimming="CharacterEllipsis"
                                                                                    MaxWidth="260" VerticalAlignment="Center" />
                                                                     </StackPanel>

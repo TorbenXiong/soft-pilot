@@ -18,6 +18,7 @@ public sealed class PortableToolsProvisioner
     private static readonly string[] ShimNames =
     [
         "node", "npm", "npx", "java", "javac", "python", "python3", "pip", "redis-server", "redis-cli",
+        "mysqld", "mysql", "mysqladmin",
     ];
 
     public async Task ProvisionAsync(

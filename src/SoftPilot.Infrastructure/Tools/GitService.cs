@@ -152,8 +152,9 @@ public sealed partial class GitService : IGitService
         CancellationToken cancellationToken = default)
     {
         var release = await GetLatestReleaseAsync(cancellationToken);
+        var installed = await GetInstalledStatusAsync(cancellationToken);
         await TrackAsync(
-            "git-install",
+            GetInstallOperationName(installed.IsInstalled),
             release.Version,
             cancellationToken,
             async operationToken =>
@@ -244,7 +245,7 @@ public sealed partial class GitService : IGitService
         }
 
         await TrackAsync(
-            "git-uninstall",
+            "uninstall",
             status.Version,
             cancellationToken,
             async operationToken =>
@@ -330,6 +331,9 @@ public sealed partial class GitService : IGitService
 
         throw new IntegrityException($"Git for Windows 最新发布缺少 {expectedName}。");
     }
+
+    internal static string GetInstallOperationName(bool isInstalled) =>
+        isInstalled ? "upgrade" : "install";
 
     internal static string? ParseInstalledVersion(string output)
     {

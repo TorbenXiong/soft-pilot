@@ -10,6 +10,7 @@ public sealed class ProcessRunner
         IEnumerable<string> arguments,
         string? workingDirectory = null,
         IReadOnlyDictionary<string, string?>? environment = null,
+        string? standardInput = null,
         CancellationToken cancellationToken = default)
     {
         var startInfo = new ProcessStartInfo
@@ -19,6 +20,7 @@ public sealed class ProcessRunner
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = standardInput is not null,
             CreateNoWindow = true,
         };
         foreach (var argument in arguments)
@@ -44,6 +46,12 @@ public sealed class ProcessRunner
         var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
         try
         {
+            if (standardInput is not null)
+            {
+                await process.StandardInput.WriteAsync(standardInput.AsMemory(), cancellationToken);
+                process.StandardInput.Close();
+            }
+
             await process.WaitForExitAsync(cancellationToken);
         }
         catch (OperationCanceledException)

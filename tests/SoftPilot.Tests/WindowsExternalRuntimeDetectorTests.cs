@@ -12,6 +12,7 @@ public sealed class WindowsExternalRuntimeDetectorTests
     [DataRow(RuntimeKind.Python, "Python 3.14.7", "3.14.7")]
     [DataRow(RuntimeKind.Java, "openjdk version \"21.0.12\" 2026-07-21 LTS", "21.0.12")]
     [DataRow(RuntimeKind.Redis, "Redis server v=8.2.9 sha=00000000:0 malloc=jemalloc bits=64", "8.2.9")]
+    [DataRow(RuntimeKind.MySql, "mysqld  Ver 8.4.11 for Win64 on x86_64 (MySQL Community Server - GPL)", "8.4.11")]
     public void ParseVersion_ReturnsValidRuntimeVersion(RuntimeKind kind, string output, string expected)
     {
         Assert.AreEqual(expected, WindowsExternalRuntimeDetector.ParseVersion(kind, output));

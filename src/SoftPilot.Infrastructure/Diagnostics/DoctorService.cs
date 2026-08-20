@@ -1,6 +1,7 @@
 using SoftPilot.Infrastructure.Installation;
 using SoftPilot.Infrastructure.IO;
 using SoftPilot.Infrastructure.Runtime;
+using SoftPilot.Infrastructure.Providers;
 
 namespace SoftPilot.Infrastructure.Diagnostics;
 
@@ -12,6 +13,8 @@ public sealed class DoctorService : IDoctorService
     private readonly IShellIntegrationService _shell;
     private readonly ProcessRunner _processRunner;
     private readonly IRedisServiceManager _redisServices;
+    private readonly IMySqlServiceManager _mySqlServices;
+    private readonly MySqlPrerequisiteInstaller _mySqlPrerequisites;
 
     public DoctorService(
         IInstallationLayout layout,
@@ -19,7 +22,9 @@ public sealed class DoctorService : IDoctorService
         IStateStore stateStore,
         IShellIntegrationService shell,
         ProcessRunner processRunner,
-        IRedisServiceManager redisServices)
+        IRedisServiceManager redisServices,
+        IMySqlServiceManager mySqlServices,
+        MySqlPrerequisiteInstaller mySqlPrerequisites)
     {
         _layout = layout;
         _rootRegistry = rootRegistry;
@@ -27,6 +32,8 @@ public sealed class DoctorService : IDoctorService
         _shell = shell;
         _processRunner = processRunner;
         _redisServices = redisServices;
+        _mySqlServices = mySqlServices;
+        _mySqlPrerequisites = mySqlPrerequisites;
     }
 
     public async Task<IReadOnlyList<DoctorCheck>> RunAsync(CancellationToken cancellationToken = default)
@@ -147,6 +154,44 @@ public sealed class DoctorService : IDoctorService
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
                 checks.Add(new DoctorCheck("Redis service state", false, exception.Message));
+            }
+        }
+
+        var currentMySql = installations.FirstOrDefault(installation =>
+            installation.Kind == RuntimeKind.MySql && installation.IsCurrent);
+        if (shell.IsEnabled && currentMySql is not null)
+        {
+            foreach (var command in new[] { "mysqld", "mysql", "mysqladmin" })
+            {
+                checks.Add(await CheckCommandResolutionAsync(command, _layout.ShimsDirectory, cancellationToken));
+            }
+        }
+
+        if (installations.Any(installation => installation.Kind == RuntimeKind.MySql))
+        {
+            var prerequisiteVersion = _mySqlPrerequisites.GetInstalledVersion();
+            checks.Add(new DoctorCheck(
+                "MySQL VC++ Runtime",
+                _mySqlPrerequisites.IsInstalled(),
+                prerequisiteVersion is null
+                    ? "未检测到兼容的 Microsoft Visual C++ x64 Runtime；重新安装任一 MySQL 版本可自动补齐"
+                    : prerequisiteVersion.ToString()));
+            try
+            {
+                var mysqlStatuses = await _mySqlServices.GetStatusesAsync(cancellationToken);
+                foreach (var mysql in mysqlStatuses)
+                {
+                    checks.Add(new DoctorCheck(
+                        $"MySQL {mysql.Version} service state",
+                        mysql.Problem is null,
+                        mysql.IsRunning
+                            ? $"PID {mysql.ProcessId}, port {mysql.Port}"
+                            : mysql.Problem ?? $"未运行，port {mysql.Port}"));
+                }
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                checks.Add(new DoctorCheck("MySQL service state", false, exception.Message));
             }
         }
 

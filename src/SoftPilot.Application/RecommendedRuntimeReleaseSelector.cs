@@ -30,6 +30,7 @@ public static class RecommendedRuntimeReleaseSelector
                 .Take(PythonReleaseLineLimit)
                 .ToArray(),
             RuntimeKind.Redis => SelectLatestPerLine(candidates, 1),
+            RuntimeKind.MySql => SelectLatestPerLine(candidates, 2),
             _ => [],
         };
     }

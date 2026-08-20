@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using SoftPilot.Application;
 using SoftPilot.Domain;
 using SoftPilot.Gui.ViewModels;
 using Windows.ApplicationModel.DataTransfer;
@@ -133,19 +134,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnStartInstalledRedisClick(object sender, RoutedEventArgs e)
+    private async void OnStartInstalledServiceClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
         {
-            await ViewModel.StartInstalledRedisAsync(row);
+            await ViewModel.StartInstalledServiceAsync(row);
         }
     }
 
-    private async void OnStopInstalledRedisClick(object sender, RoutedEventArgs e)
+    private async void OnStopInstalledServiceClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
         {
-            await ViewModel.StopInstalledRedisAsync(row);
+            await ViewModel.StopInstalledServiceAsync(row);
         }
     }
 
@@ -192,6 +193,49 @@ public sealed partial class MainWindow : Window
         row.SetPathStatus(ViewModel.IsEnglish ? "Copied" : "已复制");
         await Task.Delay(TimeSpan.FromSeconds(2));
         row.SetPathStatus(string.Empty);
+    }
+
+    private async void OnCopyMySqlPasswordClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: InstalledRuntimeRow row } button)
+        {
+            return;
+        }
+
+        button.IsEnabled = false;
+        try
+        {
+            var credentials = await ViewModel.GetMySqlCredentialsAsync(row.Version);
+            var package = new DataPackage();
+            package.SetText(credentials.Password);
+            Clipboard.SetContent(package);
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "MySQL password copied" : "MySQL 密码已复制",
+                ViewModel.IsEnglish
+                    ? $"Copied the MySQL {row.DisplayVersion} root password (port {credentials.Port})."
+                    : $"已复制 MySQL {row.DisplayVersion}（端口 {credentials.Port}）的 root 密码。",
+                IsError: false,
+                AutoDismiss: true));
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to copy MySQL password" : "无法复制 MySQL 密码",
+                exception.Message,
+                IsError: true));
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private async void OnSaveMySqlPortClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
+        {
+            await ViewModel.SaveMySqlPortAsync(row);
+        }
     }
 
     private async void OnCopyGitBashPathClick(object sender, RoutedEventArgs e)
@@ -436,13 +480,13 @@ public sealed partial class MainWindow : Window
             object content = ViewModel.IsEnglish
                 ? $"{GetRuntimeName(kind)}@{version} will be permanently removed."
                 : $"将永久卸载 {GetRuntimeName(kind)}@{version}。";
-            if (kind == RuntimeKind.Redis)
+            if (kind is RuntimeKind.Redis or RuntimeKind.MySql)
             {
                 deleteDataCheckBox = new CheckBox
                 {
                     Content = ViewModel.IsEnglish
-                        ? "Also permanently delete this version's Redis data and logs"
-                        : "同时永久删除此版本的 Redis 数据和日志",
+                        ? $"Also permanently delete this {GetRuntimeName(kind)} release line's data, configuration, credentials, and logs"
+                        : $"同时永久删除此 {GetRuntimeName(kind)} 版本线的数据、配置、凭据和日志",
                     IsChecked = false,
                 };
                 var panel = new StackPanel { Spacing = 12 };
@@ -482,15 +526,16 @@ public sealed partial class MainWindow : Window
         {
             RootNavigation.MenuItems.Add(kind switch
             {
-                RuntimeKind.Node => NodeNavigationItem,
-                RuntimeKind.Java => JavaNavigationItem,
-                RuntimeKind.Python => PythonNavigationItem,
-                RuntimeKind.Redis => RedisNavigationItem,
+                ModuleKind.Node => NodeNavigationItem,
+                ModuleKind.Java => JavaNavigationItem,
+                ModuleKind.Python => PythonNavigationItem,
+                ModuleKind.Redis => RedisNavigationItem,
+                ModuleKind.MySql => MySqlNavigationItem,
+                ModuleKind.Git => GitBashNavigationItem,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind)),
             });
         }
 
-        RootNavigation.MenuItems.Add(GitBashNavigationItem);
         RootNavigation.MenuItems.Add(RuntimeNavigationSeparator);
         RootNavigation.MenuItems.Add(TasksNavigationItem);
     }
@@ -505,6 +550,7 @@ public sealed partial class MainWindow : Window
             "runtime:java" => "Java",
             "runtime:python" => "Python",
             "runtime:redis" => "Redis",
+            "runtime:mysql" => "MySQL",
             _ => "Node.js",
         };
     }
@@ -520,10 +566,12 @@ public sealed partial class MainWindow : Window
 
             return kind switch
             {
-                RuntimeKind.Node => NodeNavigationItem,
-                RuntimeKind.Java => JavaNavigationItem,
-                RuntimeKind.Python => PythonNavigationItem,
-                RuntimeKind.Redis => RedisNavigationItem,
+                ModuleKind.Node => NodeNavigationItem,
+                ModuleKind.Java => JavaNavigationItem,
+                ModuleKind.Python => PythonNavigationItem,
+                ModuleKind.Redis => RedisNavigationItem,
+                ModuleKind.MySql => MySqlNavigationItem,
+                ModuleKind.Git => GitBashNavigationItem,
                 _ => SettingsNavigationItem,
             };
         }
@@ -537,6 +585,7 @@ public sealed partial class MainWindow : Window
         RuntimeKind.Java => "Java",
         RuntimeKind.Python => "Python",
         RuntimeKind.Redis => "Redis",
+        RuntimeKind.MySql => "MySQL",
         _ => kind.ToString(),
     };
 
@@ -548,9 +597,10 @@ public sealed partial class MainWindow : Window
             "runtime:java" => RuntimeKind.Java,
             "runtime:python" => RuntimeKind.Python,
             "runtime:redis" => RuntimeKind.Redis,
+            "runtime:mysql" => RuntimeKind.MySql,
             _ => default,
         };
-        return tag is "runtime:node" or "runtime:java" or "runtime:python" or "runtime:redis";
+        return tag is "runtime:node" or "runtime:java" or "runtime:python" or "runtime:redis" or "runtime:mysql";
     }
 
     private static bool IsOfficialRuntimeUri(RuntimeKind kind, Uri uri)
@@ -566,6 +616,7 @@ public sealed partial class MainWindow : Window
             RuntimeKind.Java => "github.com",
             RuntimeKind.Python => "python.org",
             RuntimeKind.Redis => "github.com",
+            RuntimeKind.MySql => "mysql.com",
             _ => string.Empty,
         };
         return string.Equals(uri.Host, officialDomain, StringComparison.OrdinalIgnoreCase)

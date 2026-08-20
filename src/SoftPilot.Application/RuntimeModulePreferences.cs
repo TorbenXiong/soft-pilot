@@ -5,15 +5,19 @@ public sealed record RuntimeModulePreferences(
     bool JavaEnabled,
     bool PythonEnabled,
     string Language = "en-US",
-    IReadOnlyList<RuntimeKind>? ModuleOrder = null,
-    bool RedisEnabled = true)
+    IReadOnlyList<ModuleKind>? ModuleOrder = null,
+    bool RedisEnabled = true,
+    bool MySqlEnabled = true,
+    bool GitEnabled = true)
 {
-    private static readonly RuntimeKind[] DefaultOrder =
+    private static readonly ModuleKind[] DefaultOrder =
     [
-        RuntimeKind.Node,
-        RuntimeKind.Java,
-        RuntimeKind.Python,
-        RuntimeKind.Redis,
+        ModuleKind.Node,
+        ModuleKind.Java,
+        ModuleKind.Python,
+        ModuleKind.Redis,
+        ModuleKind.MySql,
+        ModuleKind.Git,
     ];
 
     public static RuntimeModulePreferences Default { get; } = new(
@@ -23,16 +27,18 @@ public sealed record RuntimeModulePreferences(
         "en-US",
         DefaultOrder);
 
-    public bool IsEnabled(RuntimeKind kind) => kind switch
+    public bool IsEnabled(ModuleKind kind) => kind switch
     {
-        RuntimeKind.Node => NodeEnabled,
-        RuntimeKind.Java => JavaEnabled,
-        RuntimeKind.Python => PythonEnabled,
-        RuntimeKind.Redis => RedisEnabled,
+        ModuleKind.Node => NodeEnabled,
+        ModuleKind.Java => JavaEnabled,
+        ModuleKind.Python => PythonEnabled,
+        ModuleKind.Redis => RedisEnabled,
+        ModuleKind.MySql => MySqlEnabled,
+        ModuleKind.Git => GitEnabled,
         _ => false,
     };
 
-    public IReadOnlyList<RuntimeKind> GetModuleOrder()
+    public IReadOnlyList<ModuleKind> GetModuleOrder()
     {
         var order = (ModuleOrder ?? [])
             .Where(kind => DefaultOrder.Contains(kind))
@@ -41,4 +47,14 @@ public sealed record RuntimeModulePreferences(
         order.AddRange(DefaultOrder.Where(kind => !order.Contains(kind)));
         return order;
     }
+}
+
+public enum ModuleKind
+{
+    Node,
+    Java,
+    Python,
+    Redis,
+    MySql,
+    Git,
 }

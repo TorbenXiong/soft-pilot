@@ -7,6 +7,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
     private readonly IStateStore _stateStore;
     private readonly GlobalRuntimeService _globalRuntimeService;
     private readonly IRedisServiceManager? _redisServices;
+    private readonly IMySqlServiceManager? _mySqlServices;
     private readonly WorkspaceOperationLock _workspaceLock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -15,17 +16,23 @@ public sealed class OperationCoordinator : IOperationCoordinator
         IInstallationLayout layout,
         IStateStore stateStore,
         GlobalRuntimeService globalRuntimeService,
-        IRedisServiceManager? redisServices = null)
+        IRedisServiceManager? redisServices = null,
+        IMySqlServiceManager? mySqlServices = null)
     {
         _providers = providers.ToDictionary(provider => provider.Kind);
         _layout = layout;
         _stateStore = stateStore;
         _globalRuntimeService = globalRuntimeService;
         _redisServices = redisServices;
+        _mySqlServices = mySqlServices;
         _workspaceLock = new WorkspaceOperationLock(layout);
         if (_providers.ContainsKey(RuntimeKind.Redis) && redisServices is null)
         {
             throw new ArgumentNullException(nameof(redisServices));
+        }
+        if (_providers.ContainsKey(RuntimeKind.MySql) && mySqlServices is null)
+        {
+            throw new ArgumentNullException(nameof(mySqlServices));
         }
     }
 
@@ -145,9 +152,9 @@ public sealed class OperationCoordinator : IOperationCoordinator
         TrackAsync("uninstall", target, cancellationToken, async operationToken =>
         {
             options ??= new RuntimeUninstallOptions();
-            if (options.DeleteData && target.Kind != RuntimeKind.Redis)
+            if (options.DeleteData && target.Kind is not (RuntimeKind.Redis or RuntimeKind.MySql))
             {
-                throw new SoftPilotException("删除数据选项仅适用于 Redis 运行时。");
+                throw new SoftPilotException("删除数据选项仅适用于 Redis 或 MySQL 运行时。");
             }
 
             var installation = await _stateStore.FindInstallationAsync(target.Kind, target.Version, cancellationToken: operationToken)
@@ -165,6 +172,14 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     throw new SoftPilotException("正在运行的 Redis 版本不能卸载；请先停止 Redis 服务。");
                 }
             }
+            if (target.Kind == RuntimeKind.MySql && _mySqlServices is not null)
+            {
+                var service = await _mySqlServices.GetStatusAsync(target.Version, operationToken);
+                if (service.IsRunning)
+                {
+                    throw new SoftPilotException("正在运行的 MySQL 版本不能卸载；请先停止 MySQL 服务。");
+                }
+            }
 
             var removalDirectory = Path.Combine(
                 _layout.StagingDirectory,
@@ -180,23 +195,28 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     movedDirectories);
                 if (options.DeleteData)
                 {
-                    MoveForRemoval(
-                        _layout.GetRedisDataDirectory(target.Version),
-                        Path.Combine(removalDirectory, "data"),
-                        movedDirectories);
-                    MoveForRemoval(
-                        Path.GetDirectoryName(_layout.GetRedisLogPath(target.Version))!,
-                        Path.Combine(removalDirectory, "logs"),
-                        movedDirectories);
+                    var dataDirectory = target.Kind == RuntimeKind.Redis
+                        ? _layout.GetRedisDataDirectory(target.Version)
+                        : Path.GetDirectoryName(_layout.GetMySqlDataDirectory(target.Version))!;
+                    var logDirectory = Path.GetDirectoryName(target.Kind == RuntimeKind.Redis
+                        ? _layout.GetRedisLogPath(target.Version)
+                        : _layout.GetMySqlLogPath(target.Version))!;
+                    MoveForRemoval(dataDirectory, Path.Combine(removalDirectory, "data"), movedDirectories);
+                    MoveForRemoval(logDirectory, Path.Combine(removalDirectory, "logs"), movedDirectories);
                 }
 
                 await _stateStore.DeleteInstallationAsync(target.Kind, target.Version, operationToken);
                 await DeleteDirectoryWithRetryAsync(removalDirectory, CancellationToken.None);
                 if (options.DeleteData)
                 {
-                    TryDeleteEmptyDirectory(Path.GetDirectoryName(_layout.GetRedisDataDirectory(target.Version)));
-                    TryDeleteEmptyDirectory(Path.GetDirectoryName(Path.GetDirectoryName(
-                        _layout.GetRedisLogPath(target.Version))!));
+                    var dataDirectory = target.Kind == RuntimeKind.Redis
+                        ? _layout.GetRedisDataDirectory(target.Version)
+                        : Path.GetDirectoryName(_layout.GetMySqlDataDirectory(target.Version))!;
+                    var logPath = target.Kind == RuntimeKind.Redis
+                        ? _layout.GetRedisLogPath(target.Version)
+                        : _layout.GetMySqlLogPath(target.Version);
+                    TryDeleteEmptyDirectory(Path.GetDirectoryName(dataDirectory));
+                    TryDeleteEmptyDirectory(Path.GetDirectoryName(Path.GetDirectoryName(logPath)!));
                 }
             }
             catch (Exception operationException)

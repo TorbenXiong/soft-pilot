@@ -38,6 +38,15 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
     public string GetRedisLogPath(string version) =>
         Path.Combine(LogsDirectory, "redis", version, "redis.log");
 
+    public string GetMySqlDataDirectory(string version) =>
+        Path.Combine(DataDirectory, "mysql", GetReleaseLine(version), "data");
+
+    public string GetMySqlLogPath(string version) =>
+        Path.Combine(LogsDirectory, "mysql", GetReleaseLine(version), "mysql.log");
+
+    public string GetMySqlConfigPath(string version) =>
+        Path.Combine(DataDirectory, "mysql", GetReleaseLine(version), "my.ini");
+
     public void EnsureWorkspace()
     {
         Directory.CreateDirectory(Root);
@@ -63,6 +72,18 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
         RuntimeKind.Java => "java",
         RuntimeKind.Python => "python",
         RuntimeKind.Redis => "redis",
+        RuntimeKind.MySql => "mysql",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
+
+    private static string GetReleaseLine(string version)
+    {
+        var parts = version.Split('.');
+        if (parts.Length < 2 || !parts.Take(2).All(part => int.TryParse(part, out _)))
+        {
+            throw new ArgumentException($"MySQL 版本号无效：{version}", nameof(version));
+        }
+
+        return $"{parts[0]}.{parts[1]}";
+    }
 }
