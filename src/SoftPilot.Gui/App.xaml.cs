@@ -21,6 +21,15 @@ public partial class App : Microsoft.UI.Xaml.Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        var commandLineArguments = Environment.GetCommandLineArgs();
+        var elevatedOperationRequest = ElevatedOperationBroker.ReadRequestPath(commandLineArguments);
+        if (elevatedOperationRequest is not null)
+        {
+            await ElevatedOperationBroker.ProcessRequestAsync(elevatedOperationRequest);
+            Exit();
+            return;
+        }
+
         string? root = null;
         Exception? cleanupFailure = null;
         WorkspaceSetupWindow? setupWindow = null;
@@ -33,7 +42,7 @@ public partial class App : Microsoft.UI.Xaml.Application
             cleanupFailure = await TryCleanupSourceAsync(
                 migrator,
                 sourceRoot,
-                Environment.GetCommandLineArgs());
+                commandLineArguments);
 
             var registry = new WindowsRootRegistry();
             var sourceIsInitialized = IsInitializedPortableRoot(sourceRoot);

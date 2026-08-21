@@ -21,12 +21,16 @@ public partial class MainViewModel : ObservableObject
     private readonly IRedisServiceManager _redisServices;
     private readonly IMySqlServiceManager _mySqlServices;
     private readonly IGitService _gitBash;
+    private readonly IJsonFormatterHistoryStore _jsonHistoryStore;
+    private readonly IEnvironmentVariableService _environmentVariables;
+    private readonly IHostsFileService _hostsFile;
     private IReadOnlyList<RuntimeRow> _allManagedRuntimes = [];
     private IReadOnlyList<RuntimeRow> _allExternalRuntimes = [];
     private readonly Dictionary<RuntimeKind, IReadOnlyList<RuntimeRelease>> _recommendedReleases = [];
     private readonly Dictionary<RuntimeTarget, RuntimeOperationFeedback> _runtimeFeedback = [];
     private readonly HashSet<RuntimeTarget> _installingTargets = [];
     private readonly SemaphoreSlim _modulePreferencesSaveGate = new(1, 1);
+    private readonly SemaphoreSlim _jsonHistorySaveGate = new(1, 1);
     private int _moduleSaveStatusGeneration;
     private bool _modulePreferencesLoaded;
     private bool _redisServiceStatusAvailable;
@@ -51,7 +55,10 @@ public partial class MainViewModel : ObservableObject
         IRuntimeModulePreferencesStore modulePreferences,
         IRedisServiceManager redisServices,
         IMySqlServiceManager mySqlServices,
-        IGitService gitBash)
+        IGitService gitBash,
+        IJsonFormatterHistoryStore jsonHistoryStore,
+        IEnvironmentVariableService environmentVariables,
+        IHostsFileService hostsFile)
     {
         _detectors = detectors.ToArray();
         _providers = providers.ToArray();
@@ -62,6 +69,9 @@ public partial class MainViewModel : ObservableObject
         _redisServices = redisServices;
         _mySqlServices = mySqlServices;
         _gitBash = gitBash;
+        _jsonHistoryStore = jsonHistoryStore;
+        _environmentVariables = environmentVariables;
+        _hostsFile = hostsFile;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
         InstallCommand = new AsyncRelayCommand(InstallAsync, CanInstall);
         UseSelectedCommand = new AsyncRelayCommand(UseSelectedAsync, CanUseSelected);
@@ -83,6 +93,8 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<TaskRow> Tasks { get; } = [];
     public ObservableCollection<RuntimeModuleSetting> ModuleSettings { get; } = [];
     public ObservableCollection<GitEnvironmentCheckRow> GitEnvironmentChecks { get; } = [];
+    public ObservableCollection<JsonFormatterHistoryRow> JsonFormatterHistory { get; } = [];
+    public ObservableCollection<EnvironmentVariableRow> EnvironmentVariables { get; } = [];
     public IReadOnlyList<LanguageOption> LanguageOptions { get; }
 
     public IAsyncRelayCommand RefreshCommand { get; }
@@ -114,6 +126,7 @@ public partial class MainViewModel : ObservableObject
     public bool RedisModuleEnabled => IsModuleEnabled(RuntimeKind.Redis);
     public bool MySqlModuleEnabled => IsModuleEnabled(RuntimeKind.MySql);
     public bool GitModuleEnabled => IsModuleEnabled(ModuleKind.Git);
+    public bool ToolboxModuleEnabled => IsModuleEnabled(ModuleKind.Toolbox);
 
     [ObservableProperty]
     public partial LanguageOption? SelectedLanguage { get; private set; }
@@ -141,10 +154,6 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     public partial double GitBashOperationPercentage { get; private set; }
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(GitBashPathStatusVisibility))]
-    public partial string GitBashPathStatusText { get; set; } = string.Empty;
 
     [ObservableProperty]
     public partial string GitUserName { get; set; } = string.Empty;
@@ -189,6 +198,7 @@ public partial class MainViewModel : ObservableObject
     public Visibility RedisModuleVisibility => RedisModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility MySqlModuleVisibility => MySqlModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility GitModuleVisibility => GitModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ToolboxModuleVisibility => ToolboxModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public GridLength ServiceColumnWidth => IsServiceRuntime(SelectedRuntimeKind)
         ? new GridLength(110)
         : new GridLength(0);
@@ -203,6 +213,34 @@ public partial class MainViewModel : ObservableObject
         : Visibility.Collapsed;
     public bool IsEnglish => SelectedLanguage?.Code == "en-US";
     public string TaskHistoryText => T("任务历史", "Task history");
+    public string ToolboxText => T("工具箱", "Toolbox");
+    public string JsonFormatterText => T("JSON 美化", "JSON formatter");
+    public string JsonInputText => T("输入", "Input");
+    public string JsonOutputText => T("结果", "Result");
+    public string JsonInputPlaceholderText => T("粘贴或输入 JSON…", "Paste or type JSON…");
+    public string JsonOutputPlaceholderText => T("美化或压缩后的 JSON 将显示在这里", "Formatted or minified JSON appears here");
+    public string JsonBeautifyText => T("美化", "Beautify");
+    public string JsonMinifyText => T("压缩", "Minify");
+    public string JsonCopyText => T("复制结果", "Copy result");
+    public string JsonClearText => T("清空", "Clear");
+    public string JsonHistoryText => T("历史记录", "History");
+    public string JsonHistoryEmptyText => T("暂无记录", "No history yet");
+    public string JsonHistoryClearText => T("清空记录", "Clear history");
+    public string EnvironmentVariablesText => T("环境变量", "Environment variables");
+    public string HostsText => "Hosts";
+    public string EnvironmentUserScopeText => T("用户变量", "User variables");
+    public string EnvironmentMachineScopeText => T("系统变量", "System variables");
+    public string EnvironmentNameHeaderText => T("变量名", "Name");
+    public string EnvironmentValueHeaderText => T("变量值", "Value");
+    public string EnvironmentAddText => T("新增", "Add");
+    public string EnvironmentEmptyText => T("暂无环境变量", "No environment variables");
+    public string OpenSystemEnvironmentVariablesText => T(
+        "打开 Windows 环境变量设置",
+        "Open Windows environment variables");
+    public string HostsReloadText => T("重新加载", "Reload");
+    public string HostsSaveText => T("保存", "Save");
+    public string HostsPathText => T("文件位置", "File");
+    public string HostsPath => _hostsFile.HostsPath;
     public string SettingsText => T("设置", "Settings");
     public string RefreshText => T("刷新", "Refresh");
     public string InstalledTabText => T("已安装", "Installed");
@@ -272,9 +310,6 @@ public partial class MainViewModel : ObservableObject
     public Visibility GitBashReleasePageVisibility => _latestGitBashRelease is not null
         ? Visibility.Visible
         : Visibility.Collapsed;
-    public Visibility GitBashPathStatusVisibility => string.IsNullOrWhiteSpace(GitBashPathStatusText)
-        ? Visibility.Collapsed
-        : Visibility.Visible;
     public bool CanRunGitBashAction => !IsBusy && !IsGitBashOperating && _latestGitBashRelease is not null;
     public bool CanUseInstalledGitBash => GitBashIsInstalled && !IsBusy && !IsGitBashOperating;
     public bool CanEditGitConfiguration => GitBashIsInstalled
@@ -338,6 +373,7 @@ public partial class MainViewModel : ObservableObject
     public async Task InitializeAsync()
     {
         var preferencesWarning = await LoadModulePreferencesAsync();
+        await LoadJsonFormatterHistoryAsync();
         await RefreshRuntimeDataAsync(includeExternal: false);
         await RefreshServiceStatusesAsync();
         await RefreshGitBashLocalStatusAsync();
@@ -345,6 +381,146 @@ public partial class MainViewModel : ObservableObject
         await RefreshTasksAsync();
         _ = RefreshStartupDataAsync(preferencesWarning);
     }
+
+    private async Task LoadJsonFormatterHistoryAsync()
+    {
+        try
+        {
+            var entries = await _jsonHistoryStore.LoadAsync();
+            Replace(
+                JsonFormatterHistory,
+                entries
+                    .Where(IsUsableJsonHistoryEntry)
+                    .DistinctBy(entry => entry.Id)
+                    .OrderByDescending(entry => entry.UpdatedAt)
+                    .Take(50)
+                    .Select(JsonFormatterHistoryRow.FromEntry));
+        }
+        catch (Exception exception)
+        {
+            NotifyUser(
+                T("无法加载 JSON 历史记录", "Unable to load JSON history"),
+                exception.Message,
+                isError: true);
+        }
+    }
+
+    public async Task<Guid> UpsertJsonFormatterHistoryAsync(
+        Guid? id,
+        string input,
+        JsonFormattingMode mode)
+    {
+        await _jsonHistorySaveGate.WaitAsync();
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            var entries = JsonFormatterHistory.Select(row => row.ToEntry()).ToList();
+            var index = id is null ? -1 : entries.FindIndex(entry => entry.Id == id.Value);
+            JsonFormatterHistoryEntry updated;
+            if (index >= 0)
+            {
+                updated = entries[index] with { Input = input, Mode = mode, UpdatedAt = now };
+                entries.RemoveAt(index);
+            }
+            else
+            {
+                updated = new JsonFormatterHistoryEntry(
+                    Guid.NewGuid(),
+                    $"JSON · {now.ToLocalTime():MM-dd HH:mm:ss}",
+                    input,
+                    mode,
+                    now);
+            }
+
+            entries.Insert(0, updated);
+            entries = entries.Take(50).ToList();
+            await _jsonHistoryStore.SaveAsync(entries);
+            Replace(JsonFormatterHistory, entries.Select(JsonFormatterHistoryRow.FromEntry));
+            return updated.Id;
+        }
+        finally
+        {
+            _jsonHistorySaveGate.Release();
+        }
+    }
+
+    public async Task RenameJsonFormatterHistoryAsync(Guid id, string title)
+    {
+        var normalizedTitle = title.Trim();
+        if (string.IsNullOrEmpty(normalizedTitle))
+        {
+            throw new SoftPilotException(T("记录名称不能为空。", "The history name cannot be empty."));
+        }
+
+        if (normalizedTitle.Length > 80)
+        {
+            throw new SoftPilotException(T("记录名称不能超过 80 个字符。", "The history name cannot exceed 80 characters."));
+        }
+
+        await UpdateJsonFormatterHistoryAsync(entries =>
+        {
+            var index = entries.FindIndex(entry => entry.Id == id);
+            if (index >= 0)
+            {
+                entries[index] = entries[index] with { Title = normalizedTitle };
+            }
+        });
+    }
+
+    public Task DeleteJsonFormatterHistoryAsync(Guid id) =>
+        UpdateJsonFormatterHistoryAsync(entries => entries.RemoveAll(entry => entry.Id == id));
+
+    public Task ClearJsonFormatterHistoryAsync() =>
+        UpdateJsonFormatterHistoryAsync(entries => entries.Clear());
+
+    private async Task UpdateJsonFormatterHistoryAsync(Action<List<JsonFormatterHistoryEntry>> update)
+    {
+        await _jsonHistorySaveGate.WaitAsync();
+        try
+        {
+            var entries = JsonFormatterHistory.Select(row => row.ToEntry()).ToList();
+            update(entries);
+            await _jsonHistoryStore.SaveAsync(entries);
+            Replace(JsonFormatterHistory, entries.Select(JsonFormatterHistoryRow.FromEntry));
+        }
+        finally
+        {
+            _jsonHistorySaveGate.Release();
+        }
+    }
+
+    private static bool IsUsableJsonHistoryEntry(JsonFormatterHistoryEntry entry) =>
+        entry.Id != Guid.Empty
+        && !string.IsNullOrWhiteSpace(entry.Title)
+        && !string.IsNullOrWhiteSpace(entry.Input)
+        && Enum.IsDefined(entry.Mode);
+
+    public async Task RefreshEnvironmentVariablesAsync(EnvironmentVariableScope scope)
+    {
+        var entries = await _environmentVariables.GetAllAsync(scope);
+        Replace(EnvironmentVariables, entries.Select(EnvironmentVariableRow.FromEntry));
+    }
+
+    public async Task SaveEnvironmentVariableAsync(
+        string name,
+        string value,
+        EnvironmentVariableScope scope)
+    {
+        await _environmentVariables.SetAsync(name, value, scope);
+        await RefreshEnvironmentVariablesAsync(scope);
+    }
+
+    public async Task DeleteEnvironmentVariableAsync(
+        string name,
+        EnvironmentVariableScope scope)
+    {
+        await _environmentVariables.DeleteAsync(name, scope);
+        await RefreshEnvironmentVariablesAsync(scope);
+    }
+
+    public Task<string> ReadHostsAsync() => _hostsFile.ReadAsync();
+
+    public Task SaveHostsAsync(string content) => _hostsFile.SaveAsync(content);
 
     public async Task RefreshAsync()
     {
@@ -1492,7 +1668,6 @@ public partial class MainViewModel : ObservableObject
             nameof(GitBashInstalledActionsVisibility), nameof(GitBashOperationVisibility),
             nameof(GitBashProblemVisibility), nameof(GitBashProgressVisibility),
             nameof(GitBashReleasePageUrl), nameof(GitBashDownloadUrl), nameof(GitBashReleasePageVisibility),
-            nameof(GitBashPathStatusVisibility),
             nameof(CanRunGitBashAction), nameof(CanUseInstalledGitBash),
             nameof(CanEditGitConfiguration), nameof(GitEnvironmentChecksVisibility),
         ];
@@ -1518,7 +1693,19 @@ public partial class MainViewModel : ObservableObject
     {
         string[] properties =
         [
-            nameof(TaskHistoryText), nameof(SettingsText), nameof(RefreshText),
+            nameof(TaskHistoryText), nameof(ToolboxText), nameof(JsonFormatterText),
+            nameof(JsonInputText), nameof(JsonOutputText),
+            nameof(JsonInputPlaceholderText), nameof(JsonOutputPlaceholderText),
+            nameof(JsonBeautifyText), nameof(JsonMinifyText), nameof(JsonCopyText), nameof(JsonClearText),
+            nameof(JsonHistoryText), nameof(JsonHistoryEmptyText), nameof(JsonHistoryClearText),
+            nameof(EnvironmentVariablesText), nameof(HostsText),
+            nameof(EnvironmentUserScopeText), nameof(EnvironmentMachineScopeText),
+            nameof(EnvironmentNameHeaderText), nameof(EnvironmentValueHeaderText),
+            nameof(EnvironmentAddText),
+            nameof(EnvironmentEmptyText), nameof(OpenSystemEnvironmentVariablesText),
+            nameof(HostsReloadText), nameof(HostsSaveText),
+            nameof(HostsPathText), nameof(HostsPath),
+            nameof(SettingsText), nameof(RefreshText),
             nameof(InstalledTabText),
             nameof(VersionManagementTabText), nameof(NoInstalledText), nameof(NoVersionsText),
             nameof(CatalogLoadingText),
@@ -1678,7 +1865,8 @@ public partial class MainViewModel : ObservableObject
         GetOrderedModuleKinds(),
         IsModuleEnabled(RuntimeKind.Redis),
         IsModuleEnabled(RuntimeKind.MySql),
-        IsModuleEnabled(ModuleKind.Git));
+        IsModuleEnabled(ModuleKind.Git),
+        IsModuleEnabled(ModuleKind.Toolbox));
 
     private void ReplaceModuleSettings(RuntimeModulePreferences preferences)
     {
@@ -1710,6 +1898,7 @@ public partial class MainViewModel : ObservableObject
         ModuleKind.Redis => "Redis",
         ModuleKind.MySql => "MySQL",
         ModuleKind.Git => "Git",
+        ModuleKind.Toolbox => "Toolbox",
         _ => kind.ToString(),
     };
 
@@ -1721,6 +1910,7 @@ public partial class MainViewModel : ObservableObject
         ModuleKind.Redis => "ms-appx:///Assets/RuntimeIcons/redis.svg",
         ModuleKind.MySql => "ms-appx:///Assets/RuntimeIcons/mysql.svg",
         ModuleKind.Git => "ms-appx:///Assets/RuntimeIcons/git.svg",
+        ModuleKind.Toolbox => "ms-appx:///Assets/RuntimeIcons/toolbox.svg",
         _ => string.Empty,
     };
 
@@ -1802,12 +1992,14 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(RedisModuleEnabled));
         OnPropertyChanged(nameof(MySqlModuleEnabled));
         OnPropertyChanged(nameof(GitModuleEnabled));
+        OnPropertyChanged(nameof(ToolboxModuleEnabled));
         OnPropertyChanged(nameof(NodeModuleVisibility));
         OnPropertyChanged(nameof(JavaModuleVisibility));
         OnPropertyChanged(nameof(PythonModuleVisibility));
         OnPropertyChanged(nameof(RedisModuleVisibility));
         OnPropertyChanged(nameof(MySqlModuleVisibility));
         OnPropertyChanged(nameof(GitModuleVisibility));
+        OnPropertyChanged(nameof(ToolboxModuleVisibility));
     }
 
     private static void Replace<T>(ObservableCollection<T> collection, IEnumerable<T> values)
@@ -1921,7 +2113,6 @@ public sealed class RuntimeVersionRow : ObservableObject
 public sealed class InstalledRuntimeRow : ObservableObject
 {
     private RuntimeOperationFeedback? _feedback;
-    private string _pathStatusText = string.Empty;
     private bool _serviceStatusAvailable;
     private bool _isServiceRunning;
     private bool _isServiceControlBusy;
@@ -2063,11 +2254,6 @@ public sealed class InstalledRuntimeRow : ObservableObject
         || _feedback?.Placement == RuntimeFeedbackPlacement.Environment
         ? Visibility.Collapsed
         : Visibility.Visible;
-    public string PathStatusText => _pathStatusText;
-    public Visibility PathStatusVisibility => string.IsNullOrWhiteSpace(_pathStatusText)
-        ? Visibility.Collapsed
-        : Visibility.Visible;
-
     public void UpdateFeedback(RuntimeOperationFeedback? feedback)
     {
         _feedback = feedback;
@@ -2075,13 +2261,6 @@ public sealed class InstalledRuntimeRow : ObservableObject
         OnPropertyChanged(nameof(OperationStatusBrush));
         OnPropertyChanged(nameof(EnvironmentFeedbackVisibility));
         OnPropertyChanged(nameof(OperationFeedbackVisibility));
-    }
-
-    public void SetPathStatus(string text)
-    {
-        _pathStatusText = text;
-        OnPropertyChanged(nameof(PathStatusText));
-        OnPropertyChanged(nameof(PathStatusVisibility));
     }
 
     public bool TryGetEditedPort(out int port) =>
@@ -2192,6 +2371,40 @@ public sealed record GitEnvironmentCheckRow(
     string Status,
     Brush StatusBrush,
     string Result);
+
+public sealed record JsonFormatterHistoryRow(
+    Guid Id,
+    string Title,
+    string Input,
+    JsonFormattingMode Mode,
+    DateTimeOffset UpdatedAt)
+{
+    public string UpdatedAtText => UpdatedAt.ToLocalTime().ToString("g");
+
+    public static JsonFormatterHistoryRow FromEntry(JsonFormatterHistoryEntry entry) => new(
+        entry.Id,
+        entry.Title,
+        entry.Input,
+        entry.Mode,
+        entry.UpdatedAt);
+
+    public JsonFormatterHistoryEntry ToEntry() => new(Id, Title, Input, Mode, UpdatedAt);
+}
+
+public sealed record EnvironmentVariableRow(
+    string Name,
+    string Value,
+    EnvironmentVariableScope Scope)
+{
+    public bool IsPath => string.Equals(Name, "Path", StringComparison.OrdinalIgnoreCase);
+
+    public string ExpandedValue => IsPath
+        ? string.Join(Environment.NewLine, EnvironmentPathValue.Split(Value))
+        : Value;
+
+    public static EnvironmentVariableRow FromEntry(EnvironmentVariableEntry entry) =>
+        new(entry.Name, entry.Value, entry.Scope);
+}
 
 public sealed record UserNotification(
     string Title,

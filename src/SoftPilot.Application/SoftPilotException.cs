@@ -21,6 +21,14 @@ public sealed class IntegrityException : SoftPilotException
     }
 }
 
+public sealed class AdministratorPrivilegesRequiredException : SoftPilotException
+{
+    public AdministratorPrivilegesRequiredException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 public sealed class RuntimeNotFoundException : SoftPilotException
 {
     public RuntimeNotFoundException(RuntimeKind kind, string version)

@@ -61,7 +61,13 @@ First start creates the offline data directory with `--initialize-insecure`, the
 
 The Visual C++ Runtime is a shared system component outside MySQL staging rollback and uninstall. If its installer requires a restart, the MySQL installation stops and asks the user to retry afterward.
 
-Module visibility and order update immediately and are saved serially without a separate action.
+## Toolbox
+
+The toolbox is GUI-only. JSON is parsed locally with .NET; up to 50 history entries are saved by atomic replacement in `SoftPilotData\data\toolbox\json-history.json`. Environment variables are maintained per user or machine scope. `Path` is losslessly split and ordered on semicolons, preserving duplicates and empty entries while highlighting expanded directories that do not exist.
+
+Denied machine-variable and Hosts writes relaunch the same application with a one-time staging request for elevation. Hosts preserves its encoding and is backed up to `SoftPilotData\data\toolbox\hosts-backups` before writing, retaining at most 20 copies.
+
+Runtime, Git, and toolbox module visibility and order update immediately and are saved serially.
 
 ## Terminal default
 

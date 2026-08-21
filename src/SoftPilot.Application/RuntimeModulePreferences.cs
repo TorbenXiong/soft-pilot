@@ -8,7 +8,8 @@ public sealed record RuntimeModulePreferences(
     IReadOnlyList<ModuleKind>? ModuleOrder = null,
     bool RedisEnabled = true,
     bool MySqlEnabled = true,
-    bool GitEnabled = true)
+    bool GitEnabled = true,
+    bool ToolboxEnabled = true)
 {
     private static readonly ModuleKind[] DefaultOrder =
     [
@@ -18,6 +19,7 @@ public sealed record RuntimeModulePreferences(
         ModuleKind.Redis,
         ModuleKind.MySql,
         ModuleKind.Git,
+        ModuleKind.Toolbox,
     ];
 
     public static RuntimeModulePreferences Default { get; } = new(
@@ -35,6 +37,7 @@ public sealed record RuntimeModulePreferences(
         ModuleKind.Redis => RedisEnabled,
         ModuleKind.MySql => MySqlEnabled,
         ModuleKind.Git => GitEnabled,
+        ModuleKind.Toolbox => ToolboxEnabled,
         _ => false,
     };
 
@@ -57,4 +60,5 @@ public enum ModuleKind
     Redis,
     MySql,
     Git,
+    Toolbox,
 }
