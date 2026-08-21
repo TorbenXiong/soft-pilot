@@ -1,5 +1,6 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace SoftPilot.Gui.Controls;
 
@@ -14,6 +15,14 @@ public sealed class StableHyperlinkButton : HyperlinkButton
 public sealed class StableCursorButton : Button
 {
     public StableCursorButton()
+    {
+        ProtectedCursor = StableCursorResources.Hand;
+    }
+}
+
+public sealed class StableCursorToggleButton : ToggleButton
+{
+    public StableCursorToggleButton()
     {
         ProtectedCursor = StableCursorResources.Hand;
     }

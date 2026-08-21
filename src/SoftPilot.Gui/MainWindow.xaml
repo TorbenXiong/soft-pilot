@@ -248,12 +248,92 @@
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="VerticalAlignment" Value="Stretch" />
             </Style>
-            <Style x:Key="IconButtonStyle" TargetType="Button">
+            <Style x:Key="IconButtonStyle" TargetType="controls:StableCursorButton">
                 <Setter Property="Width" Value="44" />
                 <Setter Property="Height" Value="44" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="controls:StableCursorButton">
+                            <Border x:Name="IconSurface" CornerRadius="6"
+                                    Background="{TemplateBinding Background}">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualStateGroup.Transitions>
+                                            <VisualTransition GeneratedDuration="0:0:0.12" />
+                                        </VisualStateGroup.Transitions>
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="IconSurface.Background"
+                                                        Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="IconSurface.Background"
+                                                        Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <VisualState.Setters>
+                                                <Setter Target="IconSurface.Opacity" Value="0.35" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            <Style x:Key="CellValueButtonStyle" TargetType="controls:StableCursorButton">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="VerticalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="controls:StableCursorButton">
+                            <Border x:Name="ValueSurface" CornerRadius="6"
+                                    Background="{TemplateBinding Background}">
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center" />
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualStateGroup.Transitions>
+                                            <VisualTransition GeneratedDuration="0:0:0.12" />
+                                        </VisualStateGroup.Transitions>
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="ValueSurface.Background"
+                                                        Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="ValueSurface.Background"
+                                                        Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled" />
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <Style x:Key="RedisServiceButtonStyle" TargetType="controls:StableCursorButton">
                 <Setter Property="Width" Value="44" />
@@ -351,6 +431,15 @@
                     <ImageIcon Source="Assets/RuntimeIcons/git.svg" Width="20" Height="20" Foreground="#F03C2E" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem x:Name="ToolboxNavigationItem"
+                                Content="{x:Bind ViewModel.ToolboxText, Mode=OneWay}"
+                                Tag="toolbox"
+                                Visibility="{x:Bind ViewModel.ToolboxModuleVisibility, Mode=OneWay}"
+                                AutomationProperties.Name="Toolbox module">
+                <NavigationViewItem.Icon>
+                    <ImageIcon Source="Assets/RuntimeIcons/toolbox.svg" Width="20" Height="20" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItemSeparator x:Name="RuntimeNavigationSeparator" />
             <NavigationViewItem x:Name="TasksNavigationItem" Content="{x:Bind ViewModel.TaskHistoryText, Mode=OneWay}" Tag="tasks"
                                 AutomationProperties.Name="Task history">
@@ -377,17 +466,18 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="PageTitle" Text="Node.js" Style="{StaticResource TitleTextBlockStyle}"
                            VerticalAlignment="Center" />
-                <Button Grid.Column="1" Command="{x:Bind ViewModel.RefreshCommand}"
-                        Style="{StaticResource IconButtonStyle}"
-                        AutomationProperties.Name="Refresh current status"
-                        ToolTipService.ToolTip="{x:Bind ViewModel.RefreshText, Mode=OneWay}">
+                <controls:StableCursorButton x:Name="PageRefreshButton" Grid.Column="1"
+                                             Command="{x:Bind ViewModel.RefreshCommand}"
+                                             Style="{StaticResource IconButtonStyle}"
+                                             AutomationProperties.Name="Refresh current status"
+                                             ToolTipService.ToolTip="{x:Bind ViewModel.RefreshText, Mode=OneWay}">
                     <Grid>
                         <FontIcon Glyph="&#xE72C;" FontSize="18"
                                   Visibility="{x:Bind ViewModel.RefreshIconVisibility, Mode=OneWay}" />
                         <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.IsRefreshing, Mode=OneWay}"
                                       Visibility="{x:Bind ViewModel.RefreshProgressVisibility, Mode=OneWay}" />
                     </Grid>
-                </Button>
+                </controls:StableCursorButton>
             </Grid>
 
             <Grid Grid.Row="1">
@@ -401,17 +491,17 @@
                             <StackPanel Spacing="12">
                                 <StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="8,0,0,0" Spacing="0">
-                                        <ToggleButton x:Name="InstalledTabButton"
-                                                      Content="{x:Bind ViewModel.InstalledTabText, Mode=OneWay}"
-                                                      Style="{StaticResource RuntimeSegmentButtonStyle}"
-                                                      CornerRadius="8,0,0,0"
-                                                      IsChecked="True"
-                                                      Click="OnInstalledTabClick" />
-                                        <ToggleButton x:Name="VersionManagementTabButton"
-                                                      Content="{x:Bind ViewModel.VersionManagementTabText, Mode=OneWay}"
-                                                      Style="{StaticResource RuntimeSegmentButtonStyle}"
-                                                      CornerRadius="0,8,0,0"
-                                                      Click="OnVersionManagementTabClick" />
+                                        <controls:StableCursorToggleButton x:Name="InstalledTabButton"
+                                                                           Content="{x:Bind ViewModel.InstalledTabText, Mode=OneWay}"
+                                                                           Style="{StaticResource RuntimeSegmentButtonStyle}"
+                                                                           CornerRadius="8,0,0,0"
+                                                                           IsChecked="True"
+                                                                           Click="OnInstalledTabClick" />
+                                        <controls:StableCursorToggleButton x:Name="VersionManagementTabButton"
+                                                                           Content="{x:Bind ViewModel.VersionManagementTabText, Mode=OneWay}"
+                                                                           Style="{StaticResource RuntimeSegmentButtonStyle}"
+                                                                           CornerRadius="0,8,0,0"
+                                                                           Click="OnVersionManagementTabClick" />
                                     </StackPanel>
                                     <Grid>
                                         <Grid x:Name="InstalledTabContent" Padding="8,8,8,0">
@@ -474,20 +564,19 @@
                                                                     <TextBlock Text="{Binding DisplayVersion}"
                                                                                ToolTipService.ToolTip="{Binding VersionToolTip}"
                                                                                Style="{StaticResource RuntimeTableCellTextStyle}" />
-                                                                    <Button Style="{StaticResource IconButtonStyle}"
-                                                                            Width="32" Height="32" Padding="0"
-                                                                            Visibility="{Binding CopyMySqlPasswordVisibility}"
-                                                                            IsEnabled="{Binding CanCopyMySqlPassword}"
-                                                                            Click="OnCopyMySqlPasswordClick"
-                                                                            ToolTipService.ToolTip="{Binding CopyMySqlPasswordToolTip}"
-                                                                            AutomationProperties.Name="{Binding CopyMySqlPasswordToolTip}">
+                                                                    <controls:StableCursorButton Style="{StaticResource IconButtonStyle}"
+                                                                                                 Width="32" Height="32" Padding="0"
+                                                                                                 Visibility="{Binding CopyMySqlPasswordVisibility}"
+                                                                                                 IsEnabled="{Binding CanCopyMySqlPassword}"
+                                                                                                 Click="OnCopyMySqlPasswordClick"
+                                                                                                 ToolTipService.ToolTip="{Binding CopyMySqlPasswordToolTip}"
+                                                                                                 AutomationProperties.Name="{Binding CopyMySqlPasswordToolTip}">
                                                                         <FontIcon Glyph="&#xE8D7;" FontSize="14" />
-                                                                    </Button>
+                                                                    </controls:StableCursorButton>
                                                                 </StackPanel>
                                                                 <Grid Grid.Column="1" ColumnSpacing="4">
                                                                     <Grid.ColumnDefinitions>
                                                                         <ColumnDefinition Width="*" />
-                                                                        <ColumnDefinition Width="Auto" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
                                                                     <TextBlock Text="{Binding Path}"
@@ -500,16 +589,13 @@
                                                                         Click="OnOpenInstalledPathClick"
                                                                         ToolTipService.ToolTip="{Binding Path}"
                                                                         AutomationProperties.Name="Open installation directory" />
-                                                                    <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
-                                                                            Width="36" Height="36"
-                                                                            Click="OnCopyInstalledPathClick"
-                                                                            ToolTipService.ToolTip="{Binding CopyPathToolTip}"
-                                                                            AutomationProperties.Name="Copy installation path">
+                                                                    <controls:StableCursorButton Grid.Column="1" Style="{StaticResource IconButtonStyle}"
+                                                                                                 Width="36" Height="36"
+                                                                                                 Click="OnCopyInstalledPathClick"
+                                                                                                 ToolTipService.ToolTip="{Binding CopyPathToolTip}"
+                                                                                                 AutomationProperties.Name="Copy installation path">
                                                                         <FontIcon Glyph="&#xE8C8;" FontSize="14" />
-                                                                    </Button>
-                                                                    <TextBlock Grid.Column="2" Text="{Binding PathStatusText}"
-                                                                               Visibility="{Binding PathStatusVisibility}"
-                                                                               Foreground="#16803A" VerticalAlignment="Center" />
+                                                                    </controls:StableCursorButton>
                                                                 </Grid>
                                                                 <StackPanel Grid.Column="2" HorizontalAlignment="Center"
                                                                             VerticalAlignment="Center" Spacing="4">
@@ -542,15 +628,15 @@
                                                                              IsEnabled="{Binding CanEditPort}"
                                                                              Visibility="{Binding MySqlPortEditorVisibility}"
                                                                              AutomationProperties.Name="MySQL port" />
-                                                                    <Button Width="34" Height="34" Padding="0"
-                                                                            Style="{StaticResource IconButtonStyle}"
-                                                                            IsEnabled="{Binding CanSavePort}"
-                                                                            Visibility="{Binding MySqlPortEditorVisibility}"
-                                                                            Click="OnSaveMySqlPortClick"
-                                                                            ToolTipService.ToolTip="{Binding SavePortText}"
-                                                                            AutomationProperties.Name="{Binding SavePortText}">
+                                                                    <controls:StableCursorButton Width="34" Height="34" Padding="0"
+                                                                                                 Style="{StaticResource IconButtonStyle}"
+                                                                                                 IsEnabled="{Binding CanSavePort}"
+                                                                                                 Visibility="{Binding MySqlPortEditorVisibility}"
+                                                                                                 Click="OnSaveMySqlPortClick"
+                                                                                                 ToolTipService.ToolTip="{Binding SavePortText}"
+                                                                                                 AutomationProperties.Name="{Binding SavePortText}">
                                                                         <FontIcon Glyph="&#xE74E;" FontSize="14" />
-                                                                    </Button>
+                                                                    </controls:StableCursorButton>
                                                                 </StackPanel>
                                                                 <Grid Grid.Column="4" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                                       Visibility="{Binding ServiceColumnVisibility}">
@@ -772,7 +858,6 @@
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{x:Bind ViewModel.GitBashInstallPath}"
                                                        Style="{StaticResource RuntimeTableCellTextStyle}"
@@ -786,18 +871,15 @@
                                                 Click="OnOpenGitBashFolderClick"
                                                 ToolTipService.ToolTip="{x:Bind ViewModel.GitBashInstallPath}"
                                                 AutomationProperties.Name="Open Git installation directory" />
-                                            <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
-                                                    Width="36" Height="36"
-                                                    Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}"
-                                                    IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
-                                                    Click="OnCopyGitBashPathClick"
-                                                    ToolTipService.ToolTip="{x:Bind ViewModel.GitCopyPathToolTip, Mode=OneWay}"
-                                                    AutomationProperties.Name="Copy Git installation path">
+                                            <controls:StableCursorButton Grid.Column="1" Style="{StaticResource IconButtonStyle}"
+                                                                         Width="36" Height="36"
+                                                                         Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}"
+                                                                         IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                                                         Click="OnCopyGitBashPathClick"
+                                                                         ToolTipService.ToolTip="{x:Bind ViewModel.GitCopyPathToolTip, Mode=OneWay}"
+                                                                         AutomationProperties.Name="Copy Git installation path">
                                                 <FontIcon Glyph="&#xE8C8;" FontSize="14" />
-                                            </Button>
-                                            <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.GitBashPathStatusText, Mode=OneWay}"
-                                                       Visibility="{x:Bind ViewModel.GitBashPathStatusVisibility, Mode=OneWay}"
-                                                       Foreground="#16803A" VerticalAlignment="Center" />
+                                            </controls:StableCursorButton>
                                         </Grid>
                                         <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -819,12 +901,12 @@
 
                                 <StackPanel Orientation="Horizontal" Spacing="12" Margin="12,0"
                                             Visibility="{x:Bind ViewModel.GitBashInstalledActionsVisibility, Mode=OneWay}">
-                                    <Button Content="{x:Bind ViewModel.GitBashLaunchText, Mode=OneWay}"
-                                            IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
-                                            Click="OnLaunchGitBashClick" MinWidth="132" />
-                                    <Button Content="{x:Bind ViewModel.GitBashLaunchAsAdministratorText, Mode=OneWay}"
-                                            IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
-                                            Click="OnLaunchGitBashAsAdministratorClick" MinWidth="180" />
+                                    <controls:StableCursorButton Content="{x:Bind ViewModel.GitBashLaunchText, Mode=OneWay}"
+                                                                 IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                                                 Click="OnLaunchGitBashClick" MinWidth="132" />
+                                    <controls:StableCursorButton Content="{x:Bind ViewModel.GitBashLaunchAsAdministratorText, Mode=OneWay}"
+                                                                 IsEnabled="{x:Bind ViewModel.CanUseInstalledGitBash, Mode=OneWay}"
+                                                                 Click="OnLaunchGitBashAsAdministratorClick" MinWidth="180" />
                                 </StackPanel>
 
                                 <StackPanel Spacing="8" Margin="12,0"
@@ -878,10 +960,10 @@
                                     <TextBlock Text="{x:Bind ViewModel.GitConfigurationScopeText, Mode=OneWay}"
                                                Foreground="{ThemeResource SoftPilotSubtleText}"
                                                TextWrapping="Wrap" VerticalAlignment="Center" />
-                                    <Button Grid.Column="1"
-                                            Content="{x:Bind ViewModel.GitConfigurationSaveText, Mode=OneWay}"
-                                            IsEnabled="{x:Bind ViewModel.CanEditGitConfiguration, Mode=OneWay}"
-                                            Click="OnSaveGitConfigurationClick" MinWidth="112" />
+                                    <controls:StableCursorButton Grid.Column="1"
+                                                                 Content="{x:Bind ViewModel.GitConfigurationSaveText, Mode=OneWay}"
+                                                                 IsEnabled="{x:Bind ViewModel.CanEditGitConfiguration, Mode=OneWay}"
+                                                                 Click="OnSaveGitConfigurationClick" MinWidth="112" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -944,6 +1026,391 @@
 
                     </StackPanel>
                 </ScrollViewer>
+
+                <Grid x:Name="ToolboxView" Visibility="Collapsed" ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="208" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Background="{ThemeResource SoftPilotCardBackground}"
+                            CornerRadius="12" Padding="10">
+                        <Grid RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Spacing="6">
+                                <controls:StableCursorToggleButton x:Name="JsonToolButton" IsChecked="True"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                              Padding="12" Click="OnJsonToolClick">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE943;" FontSize="18" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.JsonFormatterText, Mode=OneWay}"
+                                                   FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </Grid>
+                                </controls:StableCursorToggleButton>
+                                <controls:StableCursorToggleButton x:Name="EnvironmentToolButton"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                              Padding="12" Click="OnEnvironmentToolClick">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE713;" FontSize="18" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.EnvironmentVariablesText, Mode=OneWay}"
+                                                   FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </Grid>
+                                </controls:StableCursorToggleButton>
+                                <controls:StableCursorToggleButton x:Name="HostsToolButton"
+                                              HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                              Padding="12" Click="OnHostsToolClick">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE774;" FontSize="18" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.HostsText, Mode=OneWay}"
+                                                   FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </Grid>
+                                </controls:StableCursorToggleButton>
+                            </StackPanel>
+
+                            <Grid x:Name="JsonHistoryPanel" Grid.Row="1" Margin="0,8,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid Margin="10,0,4,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.JsonHistoryText, Mode=OneWay}"
+                                               FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}"
+                                               VerticalAlignment="Center" />
+                                    <controls:StableCursorButton Grid.Column="1" Width="30" Height="30" Padding="0"
+                                            Click="OnClearJsonHistoryClick"
+                                            ToolTipService.ToolTip="{x:Bind ViewModel.JsonHistoryClearText, Mode=OneWay}"
+                                            AutomationProperties.Name="Clear JSON history">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="13" />
+                                    </controls:StableCursorButton>
+                                </Grid>
+                                <Grid Grid.Row="1">
+                                    <TextBlock x:Name="JsonHistoryEmptyText"
+                                               Text="{x:Bind ViewModel.JsonHistoryEmptyText, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Top"
+                                               Margin="0,20,0,0" />
+                                    <ListView x:Name="JsonHistoryList"
+                                              ItemsSource="{x:Bind ViewModel.JsonFormatterHistory}"
+                                              SelectionMode="Single"
+                                              SelectionChanged="OnJsonHistorySelectionChanged"
+                                              ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}"
+                                              AutomationProperties.Name="JSON history">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Padding="8" ColumnSpacing="4" MinHeight="52">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{Binding UpdatedAtText}" FontSize="11"
+                                                                   Foreground="{ThemeResource SoftPilotSubtleText}" />
+                                                    </StackPanel>
+                                                    <controls:StableCursorButton Grid.Column="1" Width="28" Height="28" Padding="0"
+                                                            Click="OnRenameJsonHistoryClick">
+                                                        <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                                                    </controls:StableCursorButton>
+                                                    <controls:StableCursorButton Grid.Column="2" Width="28" Height="28" Padding="0"
+                                                            Click="OnDeleteJsonHistoryClick">
+                                                        <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                                    </controls:StableCursorButton>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Column="1">
+                        <Border x:Name="JsonFormatterPanel" Background="{ThemeResource SoftPilotCardBackground}"
+                                CornerRadius="12" Padding="20">
+                            <Grid RowSpacing="14">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="{x:Bind ViewModel.JsonFormatterText, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                                    <controls:StableCursorToggleButton x:Name="JsonBeautifyButton"
+                                                  Content="{x:Bind ViewModel.JsonBeautifyText, Mode=OneWay}"
+                                                  IsChecked="True" Click="OnJsonBeautifyClick" />
+                                    <controls:StableCursorToggleButton x:Name="JsonMinifyButton"
+                                                  Content="{x:Bind ViewModel.JsonMinifyText, Mode=OneWay}"
+                                                  Click="OnJsonMinifyClick" />
+                                    <controls:StableCursorButton Content="{x:Bind ViewModel.JsonClearText, Mode=OneWay}"
+                                            Click="OnJsonClearClick" />
+                                </StackPanel>
+
+                                <Grid Grid.Row="2" ColumnSpacing="12" MinHeight="320">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Grid RowSpacing="8">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="32" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="{x:Bind ViewModel.JsonInputText, Mode=OneWay}"
+                                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBox x:Name="JsonInputTextBox" Grid.Row="1"
+                                                 AcceptsReturn="True" TextWrapping="NoWrap"
+                                                 FontFamily="Cascadia Mono, Consolas" FontSize="14"
+                                                 Padding="14" VerticalContentAlignment="Top"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                 PlaceholderText="{x:Bind ViewModel.JsonInputPlaceholderText, Mode=OneWay}"
+                                                 TextChanged="OnJsonInputTextChanged"
+                                                 AutomationProperties.Name="JSON input" />
+                                    </Grid>
+
+                                    <Grid Grid.Column="1" RowSpacing="8">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="32" />
+                                            <RowDefinition Height="*" />
+                                        </Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Bind ViewModel.JsonOutputText, Mode=OneWay}"
+                                                       FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <controls:StableCursorButton x:Name="JsonCopyButton" Grid.Column="1"
+                                                    Style="{StaticResource IconButtonStyle}"
+                                                    Width="32" Height="32" IsEnabled="False"
+                                                    Click="OnJsonCopyClick"
+                                                    ToolTipService.ToolTip="{x:Bind ViewModel.JsonCopyText, Mode=OneWay}"
+                                                    AutomationProperties.Name="Copy JSON result">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                                            </controls:StableCursorButton>
+                                        </Grid>
+                                        <TextBox x:Name="JsonOutputTextBox" Grid.Row="1"
+                                                 IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                                                 FontFamily="Cascadia Mono, Consolas" FontSize="14"
+                                                 Padding="14" VerticalContentAlignment="Top"
+                                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                 PlaceholderText="{x:Bind ViewModel.JsonOutputPlaceholderText, Mode=OneWay}"
+                                                 AutomationProperties.Name="JSON result" />
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <Border x:Name="EnvironmentVariablesPanel" Visibility="Collapsed"
+                                Background="{ThemeResource SoftPilotCardBackground}"
+                                CornerRadius="12" Padding="20">
+                            <Grid RowSpacing="14">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="{x:Bind ViewModel.EnvironmentVariablesText, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}" />
+                                <Grid Grid.Row="1" ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:StableCursorToggleButton x:Name="UserEnvironmentButton" IsChecked="True"
+                                                  Content="{x:Bind ViewModel.EnvironmentUserScopeText, Mode=OneWay}"
+                                                  Click="OnUserEnvironmentScopeClick" />
+                                    <controls:StableCursorToggleButton x:Name="MachineEnvironmentButton" Grid.Column="1"
+                                                  Content="{x:Bind ViewModel.EnvironmentMachineScopeText, Mode=OneWay}"
+                                                  Click="OnMachineEnvironmentScopeClick" />
+                                    <controls:StableCursorButton Grid.Column="2"
+                                                                 Style="{StaticResource IconButtonStyle}"
+                                                                 Width="32" Height="32"
+                                                                 Click="OnOpenSystemEnvironmentVariablesClick"
+                                                                 ToolTipService.ToolTip="{x:Bind ViewModel.OpenSystemEnvironmentVariablesText, Mode=OneWay}"
+                                                                 AutomationProperties.Name="Open Windows environment variables">
+                                        <FontIcon Glyph="&#xE713;" FontSize="14" />
+                                    </controls:StableCursorButton>
+                                    <controls:StableCursorButton Grid.Column="4" Style="{StaticResource IconButtonStyle}"
+                                                                 Width="32" Height="32"
+                                                                 Click="OnRefreshEnvironmentVariablesClick"
+                                                                 ToolTipService.ToolTip="{x:Bind ViewModel.RefreshText, Mode=OneWay}"
+                                                                 AutomationProperties.Name="Refresh environment variables">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                    </controls:StableCursorButton>
+                                    <controls:StableCursorButton Grid.Column="5" Style="{StaticResource IconButtonStyle}"
+                                                                 Width="32" Height="32"
+                                                                 Click="OnAddEnvironmentVariableClick"
+                                                                 ToolTipService.ToolTip="{x:Bind ViewModel.EnvironmentAddText, Mode=OneWay}"
+                                                                 AutomationProperties.Name="Add environment variable">
+                                        <FontIcon Glyph="&#xE710;" FontSize="14" />
+                                    </controls:StableCursorButton>
+                                </Grid>
+                                <Grid Grid.Row="2">
+                                    <TextBlock x:Name="EnvironmentVariablesEmptyText"
+                                               Text="{x:Bind ViewModel.EnvironmentEmptyText, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <ListView x:Name="EnvironmentVariablesList"
+                                              ItemsSource="{x:Bind ViewModel.EnvironmentVariables}"
+                                              SelectionMode="None"
+                                              ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}">
+                                        <ListView.Header>
+                                            <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                    CornerRadius="8" Height="44">
+                                                <Grid Padding="14,0" ColumnSpacing="12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="220" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="108" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{x:Bind ViewModel.EnvironmentNameHeaderText, Mode=OneWay}"
+                                                               Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.EnvironmentValueHeaderText, Mode=OneWay}"
+                                                               Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                                </Grid>
+                                            </Border>
+                                        </ListView.Header>
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Padding="14,9" ColumnSpacing="12" MinHeight="48">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="220" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="36" />
+                                                        <ColumnDefinition Width="36" />
+                                                        <ColumnDefinition Width="36" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                               ToolTipService.ToolTip="{Binding Name}" />
+                                                    <controls:StableCursorButton Grid.Column="1"
+                                                                                 Style="{StaticResource CellValueButtonStyle}"
+                                                                                 Tag="EnvironmentValue"
+                                                                                 Click="OnEditEnvironmentVariableClick"
+                                                                                 ToolTipService.ToolTip="{Binding ExpandedValue}">
+                                                        <TextBlock Text="{Binding ExpandedValue}"
+                                                                   VerticalAlignment="Center" TextWrapping="Wrap"
+                                                                   MaxLines="2" TextTrimming="CharacterEllipsis" />
+                                                    </controls:StableCursorButton>
+                                                    <controls:StableCursorButton Grid.Column="2" Style="{StaticResource IconButtonStyle}"
+                                                                                 Width="32" Height="32" Tag="EnvironmentSave"
+                                                                                 Visibility="Collapsed"
+                                                                                 Click="OnSaveEnvironmentVariableInlineClick"
+                                                                                 ToolTipService.ToolTip="Save">
+                                                        <FontIcon Glyph="&#xE73E;" FontSize="13" />
+                                                    </controls:StableCursorButton>
+                                                    <controls:StableCursorButton Grid.Column="3" Style="{StaticResource IconButtonStyle}"
+                                                                                 Width="32" Height="32" Tag="EnvironmentCancel"
+                                                                                 Visibility="Collapsed"
+                                                                                 Click="OnCancelEnvironmentVariableInlineClick"
+                                                                                 ToolTipService.ToolTip="Cancel">
+                                                        <FontIcon Glyph="&#xE711;" FontSize="13" />
+                                                    </controls:StableCursorButton>
+                                                    <controls:StableCursorButton Grid.Column="4" Style="{StaticResource IconButtonStyle}"
+                                                                                 Width="32" Height="32" Tag="EnvironmentDelete"
+                                                                                 Click="OnDeleteEnvironmentVariableClick"
+                                                                                 ToolTipService.ToolTip="Delete">
+                                                        <FontIcon Glyph="&#xE74D;" FontSize="13" Foreground="Firebrick" />
+                                                    </controls:StableCursorButton>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <Border x:Name="HostsPanel" Visibility="Collapsed"
+                                Background="{ThemeResource SoftPilotCardBackground}"
+                                CornerRadius="12" Padding="20">
+                            <Grid RowSpacing="12">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.HostsText, Mode=OneWay}"
+                                               Style="{StaticResource SubtitleTextBlockStyle}"
+                                               VerticalAlignment="Center" />
+                                    <controls:StableCursorButton Grid.Column="1" Margin="0,0,4,0"
+                                                                 Style="{StaticResource IconButtonStyle}"
+                                                                 Width="32" Height="32"
+                                                                 Click="OnReloadHostsClick"
+                                                                 ToolTipService.ToolTip="{x:Bind ViewModel.HostsReloadText, Mode=OneWay}"
+                                                                 AutomationProperties.Name="Reload Hosts">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                    </controls:StableCursorButton>
+                                    <controls:StableCursorButton x:Name="HostsSaveButton" Grid.Column="2"
+                                                                 Style="{StaticResource IconButtonStyle}"
+                                                                 Width="32" Height="32"
+                                                                 Click="OnSaveHostsClick"
+                                                                 ToolTipService.ToolTip="{x:Bind ViewModel.HostsSaveText, Mode=OneWay}"
+                                                                 AutomationProperties.Name="Save Hosts">
+                                        <FontIcon Glyph="&#xE74E;" FontSize="14" />
+                                    </controls:StableCursorButton>
+                                </Grid>
+                                <Grid Grid.Row="1" ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind ViewModel.HostsPathText, Mode=OneWay}"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.HostsPath, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind ViewModel.HostsPath, Mode=OneWay}" />
+                                </Grid>
+                                <TextBox x:Name="HostsEditorTextBox" Grid.Row="2"
+                                         AcceptsReturn="True" TextWrapping="NoWrap"
+                                         FontFamily="Cascadia Mono, Consolas" FontSize="14"
+                                         Padding="14" VerticalContentAlignment="Top"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         KeyDown="OnHostsEditorKeyDown"
+                                         AutomationProperties.Name="Hosts editor" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Grid>
 
                 <ScrollViewer x:Name="TasksView" Visibility="Collapsed"
                               VerticalScrollBarVisibility="Auto"

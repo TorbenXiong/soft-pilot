@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using System.Text.RegularExpressions;
 using SoftPilot.Infrastructure.IO;
+using SoftPilot.Infrastructure.Installation;
 using SoftPilot.Infrastructure.Providers;
 
 namespace SoftPilot.Infrastructure.Detection;
@@ -35,6 +36,7 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
     {
         var candidates = GetCandidates()
             .Where(candidate => !IsPathUnderDirectory(candidate, _managementDirectory))
+            .Where(candidate => !IsSoftPilotManagedRuntimePath(candidate))
             .Where(File.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -234,6 +236,44 @@ public sealed class WindowsExternalRuntimeDetector : IExternalRuntimeDetector
             var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
             return string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase)
                 || candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsSoftPilotManagedRuntimePath(string candidatePath)
+    {
+        try
+        {
+            var segments = Path.GetFullPath(candidatePath)
+                .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            for (var index = 0; index < segments.Length - 1; index++)
+            {
+                if (!string.Equals(
+                        segments[index],
+                        WindowsInstallationLayout.ManagementDirectoryName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (index + 1 >= segments.Length)
+                {
+                    continue;
+                }
+
+                var managedChild = segments[index + 1];
+                if (string.Equals(managedChild, "app", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(managedChild, "current", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(managedChild, "tools", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {

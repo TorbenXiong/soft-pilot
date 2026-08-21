@@ -61,7 +61,13 @@ MySQL 按 `major.minor` 版本线隔离数据、配置、DPAPI 凭据、日志�
 
 Visual C++ Runtime 是系统级共享组件，不进入 MySQL 的 staging 回滚或卸载范围；安装器要求重启时，本次 MySQL 安装会中止并提示重试。
 
-模块显示与排序会立即更新并串行保存，无需单独操作。
+## 工具箱
+
+工具箱仅存在于 GUI。JSON 使用 .NET 本地解析，最多保留 50 条历史到 `SoftPilotData\data\toolbox\json-history.json`，并通过原子替换保存。环境变量按用户/系统作用域维护；`Path` 按分号无损拆分和排序，保留重复与空条目，并标记展开后不存在的目录。
+
+系统变量和 Hosts 写入被拒绝时，同一应用通过一次性暂存请求申请管理员权限。Hosts 保留原始编码，写入前备份到 `SoftPilotData\data\toolbox\hosts-backups`，最多保留 20 份。
+
+运行时、Git 和工具箱模块的显示与排序会立即更新并串行保存。
 
 ## 终端默认版本
 

@@ -29,6 +29,7 @@ Node.js and Temurin archives automatically use the faster responsive source afte
 - Show download progress and operation results directly beside each version.
 - Permanently uninstall versions that are no longer needed.
 - Install, launch, upgrade, and uninstall a single managed copy of the latest portable Git for Windows without changing the user `PATH` or other Git installations; inspect SSH and Git LFS component health and explicitly edit global `user.name` and `user.email` from the Git page. Uninstall preserves the unified download cache and global Git configuration, including `user.name` and `user.email`.
+- Use the local toolbox to beautify, minify, and validate JSON with maintained history, environment variables, and Windows Hosts. `Path` supports row-based editing, ordering, and missing-path warnings; machine-variable and Hosts saves request elevation automatically, and Hosts is backed up before writing.
 - Apply and save module visibility and order changes immediately.
 - Switch between English and Simplified Chinese. English is the default.
 

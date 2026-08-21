@@ -63,4 +63,21 @@ public sealed class WindowsExternalRuntimeDetectorTests
             "invalid\0path",
             managementDirectory));
     }
+
+    [TestMethod]
+    public void SoftPilotManagedRuntimePaths_AreExcludedAcrossPortableRoots()
+    {
+        Assert.IsTrue(WindowsExternalRuntimeDetector.IsSoftPilotManagedRuntimePath(
+            @"D:\SoftPilot\SoftPilotData\tools\shims\node.exe"));
+        Assert.IsTrue(WindowsExternalRuntimeDetector.IsSoftPilotManagedRuntimePath(
+            @"D:\SoftPilot\SoftPilotData\current\node\node.exe"));
+        Assert.IsTrue(WindowsExternalRuntimeDetector.IsSoftPilotManagedRuntimePath(
+            @"E:\Portable\SoftPilotData\app\node\24.19.0\node.exe"));
+        Assert.IsTrue(WindowsExternalRuntimeDetector.IsSoftPilotManagedRuntimePath(
+            @"E:\Portable\SOFTPILOTDATA\TOOLS\shims\node.exe"));
+        Assert.IsFalse(WindowsExternalRuntimeDetector.IsSoftPilotManagedRuntimePath(
+            @"D:\External\nodejs\node.exe"));
+        Assert.IsFalse(WindowsExternalRuntimeDetector.IsSoftPilotManagedRuntimePath(
+            @"D:\SoftPilotDataBackup\node.exe"));
+    }
 }

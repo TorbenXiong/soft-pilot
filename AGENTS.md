@@ -2,7 +2,7 @@
 
 ## 1. 项目定位与当前范围
 
-SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.8`，V1 聚焦：
+SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.9`，V1 聚焦：
 
 - Node.js 官方 Windows x64 ZIP。
 - Eclipse Temurin HotSpot JDK Windows x64 ZIP。
@@ -119,7 +119,7 @@ dotnet format SoftPilot.slnx --verify-no-changes --no-restore
 开发包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.8
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.9
 ```
 
 未提供证书指纹时生成的是未签名开发构建，不得描述为已签名发布版本。打包不等于首次启动；除非任务明确要求，不要自动运行生成的便携应用或修改用户环境。

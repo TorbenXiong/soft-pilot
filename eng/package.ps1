@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$')]
-    [string]$Version = '0.0.8',
+    [string]$Version = '0.0.9',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
     [string]$CertificateThumbprint,

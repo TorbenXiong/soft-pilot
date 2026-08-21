@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddSingleton<ISignatureVerificationService, BouncyCastleSignatureVerificationService>();
         services.AddSingleton<IStateStore, SqliteStateStore>();
         services.AddSingleton<IRuntimeModulePreferencesStore, JsonRuntimeModulePreferencesStore>();
+        services.AddSingleton<IJsonFormatterHistoryStore, JsonFormatterHistoryStore>();
         services.AddSingleton<WindowsDirectoryLinkService>();
         services.AddSingleton<GlobalRuntimeService>();
         services.AddSingleton<IGlobalRuntimeService>(provider => provider.GetRequiredService<GlobalRuntimeService>());
@@ -47,6 +48,8 @@ public static class DependencyInjection
         services.AddSingleton<ICacheService, CacheService>();
         services.AddSingleton<IDoctorService, DoctorService>();
         services.AddSingleton<IGitService, GitService>();
+        services.AddSingleton<IEnvironmentVariableService, WindowsEnvironmentVariableService>();
+        services.AddSingleton<IHostsFileService, WindowsHostsFileService>();
 
         services.AddSingleton<RuntimeCatalogCache>();
         services.AddSingleton<PythonInstallManagerProvisioner>();
