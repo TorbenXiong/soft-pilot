@@ -238,7 +238,7 @@ public sealed class DoctorService : IDoctorService
         {
             var result = await _processRunner.RunAsync("node.exe", ["--version"], cancellationToken: cancellationToken);
             var actual = result.StandardOutput.Trim();
-            var passed = result.ExitCode == 0 && RuntimeVersionMatcher.AreEquivalent(currentNode.Version, actual);
+            var passed = result.ExitCode == 0 && RuntimeVersionMatcher.AreEquivalent(RuntimeKind.Node, currentNode.Version, actual);
             return new DoctorCheck(
                 "Node effective version",
                 passed,

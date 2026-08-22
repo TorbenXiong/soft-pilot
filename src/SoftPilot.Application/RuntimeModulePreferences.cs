@@ -4,12 +4,13 @@ public sealed record RuntimeModulePreferences(
     bool NodeEnabled,
     bool JavaEnabled,
     bool PythonEnabled,
-    string Language = "en-US",
+    string Language = "zh-CN",
     IReadOnlyList<ModuleKind>? ModuleOrder = null,
     bool RedisEnabled = true,
     bool MySqlEnabled = true,
     bool GitEnabled = true,
-    bool ToolboxEnabled = true)
+    bool ToolboxEnabled = true,
+    bool CocosEnabled = true)
 {
     private static readonly ModuleKind[] DefaultOrder =
     [
@@ -19,6 +20,7 @@ public sealed record RuntimeModulePreferences(
         ModuleKind.Redis,
         ModuleKind.MySql,
         ModuleKind.Git,
+        ModuleKind.Cocos,
         ModuleKind.Toolbox,
     ];
 
@@ -26,7 +28,7 @@ public sealed record RuntimeModulePreferences(
         true,
         true,
         true,
-        "en-US",
+        "zh-CN",
         DefaultOrder);
 
     public bool IsEnabled(ModuleKind kind) => kind switch
@@ -37,6 +39,7 @@ public sealed record RuntimeModulePreferences(
         ModuleKind.Redis => RedisEnabled,
         ModuleKind.MySql => MySqlEnabled,
         ModuleKind.Git => GitEnabled,
+        ModuleKind.Cocos => CocosEnabled,
         ModuleKind.Toolbox => ToolboxEnabled,
         _ => false,
     };
@@ -61,4 +64,5 @@ public enum ModuleKind
     MySql,
     Git,
     Toolbox,
+    Cocos,
 }

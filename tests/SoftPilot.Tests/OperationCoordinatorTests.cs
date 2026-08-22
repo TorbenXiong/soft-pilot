@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using SoftPilot.Application.Abstractions;
 using SoftPilot.Domain;
 using SoftPilot.Infrastructure.Installation;
@@ -11,6 +12,57 @@ public sealed class OperationCoordinatorTests
 {
     private static readonly IRedisServiceManager StoppedRedis =
         new StubRedisServiceManager(new RedisServiceStatus(false));
+
+    [TestMethod]
+    public async Task UpgradeAsync_InstallsSwitchesAndPreservesPreviousVersion()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string previousVersion = "24.18.0";
+        const string version = "24.19.0";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var previousDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, previousVersion);
+        Directory.CreateDirectory(previousDirectory);
+        await File.WriteAllTextAsync(Path.Combine(previousDirectory, "runtime.txt"), previousVersion);
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Node,
+            previousVersion,
+            RuntimeArchitecture.X64,
+            previousDirectory,
+            DateTimeOffset.UtcNow,
+            true));
+        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
+        var links = new WindowsDirectoryLinkService(new ProcessRunner());
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            links,
+            [provider],
+            new TestShellIntegrationService());
+        var coordinator = new OperationCoordinator([provider], layout, state, global);
+
+        try
+        {
+            await coordinator.UpgradeAsync(
+                new RuntimeTarget(RuntimeKind.Node, version),
+                makeCurrent: true);
+
+            var installations = await state.GetInstallationsAsync();
+            Assert.HasCount(2, installations);
+            Assert.IsTrue(Directory.Exists(previousDirectory));
+            Assert.IsFalse(installations.Single(item => item.Version == previousVersion).IsCurrent);
+            Assert.IsTrue(installations.Single(item => item.Version == version).IsCurrent);
+            var operation = (await state.GetOperationsAsync()).Single();
+            Assert.AreEqual("upgrade", operation.Name);
+            Assert.AreEqual(OperationStatus.Succeeded, operation.Status);
+        }
+        finally
+        {
+            links.Delete(layout.GetCurrentLink(RuntimeKind.Node));
+        }
+    }
+
     [TestMethod]
     public async Task InstallAsync_WhenCancellationArrivesAfterCommit_RecordsSucceeded()
     {
@@ -156,8 +208,15 @@ public sealed class OperationCoordinatorTests
         var layout = new WindowsInstallationLayout(sandbox.Path);
         layout.EnsureWorkspace();
         var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, version);
+        var archivePath = Path.Combine(layout.DownloadsDirectory, $"node-v{version}-win-x64.zip");
+        var checksumPath = Path.Combine(layout.DownloadsDirectory, $"node-{version}-SHASUMS256.txt");
+        var unrelatedCachePath = Path.Combine(layout.DownloadsDirectory, "unrelated.zip");
         Directory.CreateDirectory(installDirectory);
         await File.WriteAllTextAsync(Path.Combine(installDirectory, "runtime.txt"), version);
+        await File.WriteAllTextAsync(archivePath, "archive");
+        await File.WriteAllTextAsync(checksumPath, "checksums");
+        await File.WriteAllTextAsync(checksumPath + ".sig", "signature");
+        await File.WriteAllTextAsync(unrelatedCachePath, "preserve");
         var state = new InMemoryStateStore();
         await state.UpsertInstallationAsync(new RuntimeInstallation(
             RuntimeKind.Node,
@@ -178,6 +237,11 @@ public sealed class OperationCoordinatorTests
         await coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Node, version));
 
         Assert.IsFalse(Directory.Exists(installDirectory));
+        Assert.IsFalse(Directory.Exists(Path.GetDirectoryName(installDirectory)));
+        Assert.IsFalse(File.Exists(archivePath));
+        Assert.IsFalse(File.Exists(checksumPath));
+        Assert.IsFalse(File.Exists(checksumPath + ".sig"));
+        Assert.IsTrue(File.Exists(unrelatedCachePath));
         Assert.IsNull(await state.FindInstallationAsync(RuntimeKind.Node, version, includeDeleted: true));
         Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
         Assert.AreEqual(OperationStatus.Succeeded, (await state.GetOperationsAsync()).Single().Status);
@@ -191,8 +255,10 @@ public sealed class OperationCoordinatorTests
         var layout = new WindowsInstallationLayout(sandbox.Path);
         layout.EnsureWorkspace();
         var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, version);
+        var archivePath = Path.Combine(layout.DownloadsDirectory, $"node-v{version}-win-x64.zip");
         Directory.CreateDirectory(installDirectory);
         await File.WriteAllTextAsync(Path.Combine(installDirectory, "runtime.txt"), version);
+        await File.WriteAllTextAsync(archivePath, "archive");
         var state = new InMemoryStateStore
         {
             BeforeDeleteInstallation = (_, _) => throw new InvalidOperationException("simulated state failure"),
@@ -217,8 +283,117 @@ public sealed class OperationCoordinatorTests
             coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Node, version)));
 
         Assert.IsTrue(Directory.Exists(installDirectory));
+        Assert.IsTrue(File.Exists(archivePath));
         Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Node, version));
+        Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
         Assert.AreEqual(OperationStatus.Failed, (await state.GetOperationsAsync()).Single().Status);
+    }
+
+    [TestMethod]
+    public async Task UninstallAsync_WhenRuntimeFileIsInUse_PreservesRuntimeCacheAndState()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "1.2.3";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, version);
+        var runtimePath = Path.Combine(installDirectory, "runtime.exe");
+        var archivePath = Path.Combine(layout.DownloadsDirectory, $"node-v{version}-win-x64.zip");
+        Directory.CreateDirectory(installDirectory);
+        await File.WriteAllTextAsync(runtimePath, version);
+        await File.WriteAllTextAsync(archivePath, "archive");
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Node,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var coordinator = new OperationCoordinator([provider], layout, state, global);
+        await using var lockedRuntime = new FileStream(
+            runtimePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+
+        var exception = await Assert.ThrowsAsync<SoftPilot.Application.SoftPilotException>(() =>
+            coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Node, version)));
+
+        StringAssert.Contains(exception.Message, "正在使用");
+        Assert.IsTrue(File.Exists(runtimePath));
+        Assert.IsTrue(File.Exists(archivePath));
+        Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Node, version));
+        Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
+        Assert.AreEqual(OperationStatus.Failed, (await state.GetOperationsAsync()).Single().Status);
+    }
+
+    [TestMethod]
+    public async Task UninstallAsync_WhenRuntimeExecutableIsRunning_PreservesRuntimeCacheAndState()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "1.2.3";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Node, version);
+        var runtimePath = Path.Combine(installDirectory, "runtime.exe");
+        var archivePath = Path.Combine(layout.DownloadsDirectory, $"node-v{version}-win-x64.zip");
+        Directory.CreateDirectory(installDirectory);
+        File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "ping.exe"), runtimePath);
+        await File.WriteAllTextAsync(archivePath, "archive");
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Node,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Node, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var coordinator = new OperationCoordinator([provider], layout, state, global);
+        using var runningRuntime = Process.Start(new ProcessStartInfo(
+            runtimePath,
+            "-t 127.0.0.1")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+        }) ?? throw new AssertFailedException("Unable to start test runtime process.");
+        try
+        {
+            await Task.Delay(200);
+            Assert.IsFalse(runningRuntime.HasExited);
+
+            var exception = await Assert.ThrowsAsync<SoftPilot.Application.SoftPilotException>(() =>
+                coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Node, version)));
+
+            StringAssert.Contains(exception.Message, "正在使用");
+            Assert.IsTrue(File.Exists(runtimePath));
+            Assert.IsTrue(File.Exists(archivePath));
+            Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Node, version));
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
+            Assert.AreEqual(OperationStatus.Failed, (await state.GetOperationsAsync()).Single().Status);
+        }
+        finally
+        {
+            if (!runningRuntime.HasExited)
+            {
+                runningRuntime.Kill(entireProcessTree: true);
+                await runningRuntime.WaitForExitAsync();
+            }
+        }
     }
 
     [TestMethod]
@@ -313,6 +488,48 @@ public sealed class OperationCoordinatorTests
     }
 
     [TestMethod]
+    public async Task UninstallAsync_RedisRemovesStoppedServiceState()
+    {
+        using var sandbox = new TemporaryDirectory();
+        const string version = "8.2.9";
+        var layout = new WindowsInstallationLayout(sandbox.Path);
+        layout.EnsureWorkspace();
+        var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Redis, version);
+        var serviceStatePath = layout.GetRedisServiceStatePath();
+        Directory.CreateDirectory(installDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(serviceStatePath)!);
+        await File.WriteAllTextAsync(serviceStatePath, "stale state");
+        var state = new InMemoryStateStore();
+        await state.UpsertInstallationAsync(new RuntimeInstallation(
+            RuntimeKind.Redis,
+            version,
+            RuntimeArchitecture.X64,
+            installDirectory,
+            DateTimeOffset.UtcNow,
+            false));
+        var provider = new TestRuntimeProvider(RuntimeKind.Redis, version);
+        var global = new GlobalRuntimeService(
+            state,
+            layout,
+            new WindowsDirectoryLinkService(new ProcessRunner()),
+            [provider],
+            new TestShellIntegrationService());
+        var stoppedRedis = new StubRedisServiceManager(new RedisServiceStatus(false, version));
+        var coordinator = new OperationCoordinator(
+            [provider],
+            layout,
+            state,
+            global,
+            stoppedRedis);
+
+        await coordinator.UninstallAsync(new RuntimeTarget(RuntimeKind.Redis, version));
+
+        Assert.IsFalse(File.Exists(serviceStatePath));
+        Assert.IsFalse(Directory.Exists(installDirectory));
+        Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
+    }
+
+    [TestMethod]
     public async Task UninstallAsync_WhenRedisStateDeletionFails_RestoresRuntimeDataAndLogs()
     {
         using var sandbox = new TemporaryDirectory();
@@ -322,11 +539,13 @@ public sealed class OperationCoordinatorTests
         var installDirectory = layout.GetRuntimeDirectory(RuntimeKind.Redis, version);
         var dataPath = Path.Combine(layout.GetRedisDataDirectory(version), "dump.rdb");
         var logPath = layout.GetRedisLogPath(version);
+        var serviceStatePath = layout.GetRedisServiceStatePath();
         Directory.CreateDirectory(installDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(dataPath)!);
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
         await File.WriteAllTextAsync(dataPath, "data");
         await File.WriteAllTextAsync(logPath, "log");
+        await File.WriteAllTextAsync(serviceStatePath, "stale state");
         var state = new InMemoryStateStore
         {
             BeforeDeleteInstallation = (_, _) => throw new InvalidOperationException("simulated state failure"),
@@ -350,7 +569,7 @@ public sealed class OperationCoordinatorTests
             layout,
             state,
             global,
-            StoppedRedis);
+            new StubRedisServiceManager(new RedisServiceStatus(false, version)));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.UninstallAsync(
             new RuntimeTarget(RuntimeKind.Redis, version),
@@ -359,7 +578,9 @@ public sealed class OperationCoordinatorTests
         Assert.IsTrue(Directory.Exists(installDirectory));
         Assert.IsTrue(File.Exists(dataPath));
         Assert.IsTrue(File.Exists(logPath));
+        Assert.IsTrue(File.Exists(serviceStatePath));
         Assert.IsNotNull(await state.FindInstallationAsync(RuntimeKind.Redis, version));
+        Assert.AreEqual(0, Directory.GetFileSystemEntries(layout.StagingDirectory).Length);
     }
 
     [TestMethod]

@@ -63,7 +63,7 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
                     throw new SoftPilotException($"切换后的运行时健康检查失败：{health.Error}");
                 }
 
-                if (!RuntimeVersionMatcher.AreEquivalent(version, health.DetectedVersion))
+                if (!RuntimeVersionMatcher.AreEquivalent(kind, version, health.DetectedVersion))
                 {
                     throw new IntegrityException(
                         $"切换目标版本 {version} 与实际版本 {health.DetectedVersion} 不一致。");
@@ -92,22 +92,19 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
                 throw;
             }
 
-            if (!shellWasEnabled)
+            try
             {
-                try
-                {
-                    await _shell.EnableAsync(cancellationToken);
-                }
-                catch (Exception operationException)
-                {
-                    await RollbackSelectionAsync(
-                        kind,
-                        previous,
-                        link,
-                        operationException,
-                        restoreShell: false);
-                    throw;
-                }
+                await _shell.EnableAsync(cancellationToken);
+            }
+            catch (Exception operationException)
+            {
+                await RollbackSelectionAsync(
+                    kind,
+                    previous,
+                    link,
+                    operationException,
+                    restoreShell: shellWasEnabled);
+                throw;
             }
         }
         finally
@@ -125,9 +122,10 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
             var current = await GetCurrentAsync(cancellationToken);
             var previous = current[kind];
             var link = _layout.GetCurrentLink(kind);
-            var shouldDisableShell = previous is not null
-                && current.Where(pair => pair.Key != kind).All(pair => pair.Value is null)
-                && (await _shell.GetStatusAsync(cancellationToken)).IsEnabled;
+            var hasOtherCurrentVersion = current
+                .Where(pair => pair.Key != kind)
+                .Any(pair => pair.Value is not null);
+            var shellWasEnabled = (await _shell.GetStatusAsync(cancellationToken)).IsEnabled;
             _links.Delete(link);
             try
             {
@@ -150,11 +148,18 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
                 throw;
             }
 
-            if (shouldDisableShell)
+            if (previous is not null)
             {
                 try
                 {
-                    await _shell.DisableAsync(cancellationToken);
+                    if (hasOtherCurrentVersion)
+                    {
+                        await _shell.EnableAsync(cancellationToken);
+                    }
+                    else if (shellWasEnabled)
+                    {
+                        await _shell.DisableAsync(cancellationToken);
+                    }
                 }
                 catch (Exception operationException)
                 {
@@ -163,7 +168,7 @@ public sealed class GlobalRuntimeService : IGlobalRuntimeService
                         previous,
                         link,
                         operationException,
-                        restoreShell: true);
+                        restoreShell: shellWasEnabled);
                     throw;
                 }
             }

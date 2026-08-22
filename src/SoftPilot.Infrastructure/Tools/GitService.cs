@@ -250,28 +250,77 @@ public sealed partial class GitService : IGitService
             cancellationToken,
             async operationToken =>
             {
-                var stagingDirectory = Path.Combine(
+                var removalDirectory = Path.Combine(
                     _layout.StagingDirectory,
                     $"git-uninstall-{Guid.NewGuid():N}");
-                await MoveDirectoryWithRetryAsync(InstallDirectory, stagingDirectory, operationToken);
+                var movedFiles = new List<(string Original, string Staged)>();
+                Directory.CreateDirectory(removalDirectory);
                 try
                 {
-                    await DeleteDirectoryWithRetryAsync(stagingDirectory, operationToken);
+                    await MoveDirectoryWithRetryAsync(
+                        InstallDirectory,
+                        Path.Combine(removalDirectory, "app"),
+                        operationToken);
+                    var cacheDirectory = Path.Combine(removalDirectory, "cache");
+                    var cacheIndex = 0;
+                    foreach (var cachePath in FindArchiveCachePaths())
+                    {
+                        Directory.CreateDirectory(cacheDirectory);
+                        var staged = Path.Combine(
+                            cacheDirectory,
+                            $"{cacheIndex++:D3}-{Path.GetFileName(cachePath)}");
+                        File.Move(cachePath, staged);
+                        movedFiles.Add((cachePath, staged));
+                    }
+
+                    await DeleteDirectoryWithRetryAsync(removalDirectory, operationToken);
                 }
                 catch
                 {
-                    if (!Directory.Exists(InstallDirectory) && Directory.Exists(stagingDirectory))
+                    var stagedApp = Path.Combine(removalDirectory, "app");
+                    if (!Directory.Exists(InstallDirectory) && Directory.Exists(stagedApp))
                     {
                         await MoveDirectoryWithRetryAsync(
-                            stagingDirectory,
+                            stagedApp,
                             InstallDirectory,
                             CancellationToken.None);
                     }
 
+                    for (var index = movedFiles.Count - 1; index >= 0; index--)
+                    {
+                        var (original, staged) = movedFiles[index];
+                        if (File.Exists(staged) && !File.Exists(original))
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(original)!);
+                            File.Move(staged, original);
+                        }
+                    }
+
+                    TryDeleteDirectory(removalDirectory);
                     throw;
                 }
             });
     }
+
+    private IReadOnlyList<string> FindArchiveCachePaths()
+    {
+        if (!Directory.Exists(_layout.DownloadsDirectory))
+        {
+            return [];
+        }
+
+        return Directory.EnumerateFiles(
+                _layout.DownloadsDirectory,
+                "PortableGit-*.7z.exe",
+                SearchOption.TopDirectoryOnly)
+            .Where(path => IsManagedArchiveCacheName(Path.GetFileName(path)))
+            .ToArray();
+    }
+
+    internal static bool IsManagedArchiveCacheName(string fileName) =>
+        fileName.StartsWith("PortableGit-", StringComparison.OrdinalIgnoreCase)
+        && fileName.EndsWith("-64-bit.7z.exe", StringComparison.OrdinalIgnoreCase)
+        && fileName.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
     internal static GitRelease ParseLatestRelease(string json)
     {

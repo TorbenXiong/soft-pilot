@@ -20,7 +20,9 @@
 └─ SoftPilotData\
    ├─ app\
    │  ├─ <kind>\<version>\
-   │  └─ git\
+   │  ├─ git\
+   │  ├─ cocos\
+   │  └─ cocos-creator\<version>\
    ├─ current\<kind>
    ├─ tools\shims\
    ├─ data\
@@ -38,16 +40,19 @@
 - 首次启动校验所选本地 NTFS 路径，复制并校验 EXE 哈希，原子替换目标后重新启动，最后只删除已验证的源 EXE。
 - 启动时根据清单校验并按需原子部署内嵌 CLI 与 shim。
 - 运行时安装遵循 `cache → staging → 健康检查 → app → SQLite`；官方元数据、TLS、哈希、签名或健康检查失败都会终止事务。
-- 所有模块共用 `cache\downloads`；SoftPilot 每次启动时通过统一缓存服务删除超过 30 天的文件和空目录，模块卸载不单独清理缓存。`spt cache clean` 保留为立即清空入口。
-- Git 安装与升级遵循 `官方最新发布 → cache → SHA-256 校验 → staging → 版本健康检查 → app\git`；升级以可回滚方式替换唯一受管目录，卸载不会触碰统一下载缓存或其他 Git 安装。Git 页面仅在用户点击保存后，通过受管 Git 显式读写全局 `user.name` 与 `user.email`；卸载保留包括 `user.name`、`user.email` 在内的 Git 全局配置、SSH 密钥、凭据和仓库。
+- Node.js、Java、Python、Redis 和 MySQL 的同版本线升级复用完整安装事务，新版本成功提交后才按需切换终端默认版本；旧版运行时、缓存以及 Redis/MySQL 服务数据均保留，由用户确认后另行卸载。
+- 所有模块共用 `cache\downloads`；卸载事务会纳入能够安全归属到目标版本或单副本模块的安装归档、签名和辅助缓存。其余缓存由统一缓存服务在启动时删除超过 30 天的文件和空目录，`spt cache clean` 保留为立即清空入口。
+- Git 安装与升级遵循 `官方最新发布 → cache → SHA-256 校验 → staging → 版本健康检查 → app\git`；升级以可回滚方式替换唯一受管目录，卸载同时删除受管副本和 PortableGit 安装归档，但不触碰其他 Git 安装。Git 页面仅在用户点击保存后，通过受管 Git 显式读写全局 `user.name` 与 `user.email`；卸载保留包括 `user.name`、`user.email` 在内的 Git 全局配置、SSH 密钥、凭据和仓库。
+- Cocos Dashboard 与 Git 一样采用唯一受管副本。SoftPilot 从 Cocos 官方下载页发现最新 Windows 安装包，要求该版本存在于内置 SHA-256 目录，下载到统一缓存并验证哈希、官方 HTTPS 来源和厦门雅基软件 Authenticode 发布者；随后在独立 staging 中提取 MSI 管理映像，核对 `CocosDashboard.exe` 的实际版本与签名，再原子替换 `app\cocos`。升级失败时恢复旧目录，卸载通过同一 staging 事务删除受管副本和安装包缓存，并可在用户明确勾选时删除 `%USERPROFILE%\.Cocos` Dashboard 数据。
+- Cocos Creator 采用多版本受管模型。官方稳定版 ZIP 按版本缓存到 `cache\downloads\cocos-creator\<version>`；由于 Cocos 当前不发布 SHA-256，下载服务在 HTTPS 传输期间计算 SHA-256 并写入缓存清单，解包前再次复核。归档只允许通过防目录穿越的 ZIP 解包进入独立 staging，`CocosCreator.exe` 的实际版本与厦门雅基软件 Authenticode 签名通过后，才原子提交到 `app\cocos-creator\<version>`。升级复用该事务并保留旧编辑器；卸载事务只删除所选版本及其缓存，始终保留 `.CocosCreator`、扩展和项目。Dashboard 与 Creator 都不写系统安装目录或 HKLM，不需要 UAC，也不修改 PATH。
 - 卸载先把运行时移入 staging，删除状态后再删除文件；失败时恢复目录和状态。
 - GUI 与 CLI 的修改操作共用工作区跨进程锁。
 
-Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。Redis 版本必须存在于 Redis 官方发布目录中；Windows 归档来自 `redis-windows/redis-windows` GitHub Releases，并强制校验 GitHub Asset SHA-256 摘要。MySQL 仅接受 Oracle `cdn.mysql.com` 的受支持 Windows x64 ZIP，并使用 `repo.mysql.com` 的固定主密钥指纹验证同名 `.asc` 分离签名。MySQL 安装还会检测 HKLM 中的 x64 v14 Runtime；低于 `14.29.30157` 或缺失时，只从 Microsoft `https://aka.ms/vc14/vc_redist.x64.exe` 下载，要求 Authenticode 状态有效且证书发布者为 Microsoft Corporation，再通过 UAC 安装。Git 只接受 `git-for-windows/git` 官方最新 Release 的 x64 PortableGit 自解压归档，并强制校验 GitHub Asset SHA-256 摘要。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
+Node.js 校验官方签名的校验清单；Temurin 校验 Adoptium 哈希和签名；Python 使用 python.org 官方目录与 Install Manager。Redis 版本必须存在于 Redis 官方发布目录中；Windows 归档来自 `redis-windows/redis-windows` GitHub Releases，并强制校验 GitHub Asset SHA-256 摘要。MySQL 仅接受 Oracle `cdn.mysql.com` 的受支持 Windows x64 ZIP，并使用 `repo.mysql.com` 的固定主密钥指纹验证同名 `.asc` 分离签名。MySQL 安装还会检测 HKLM 中的 x64 v14 Runtime；低于 `14.29.30157` 或缺失时，只从 Microsoft `https://aka.ms/vc14/vc_redist.x64.exe` 下载，要求 Authenticode 状态有效且证书发布者为 Microsoft Corporation，再通过 UAC 安装。Git 只接受 `git-for-windows/git` 官方最新 Release 的 x64 PortableGit 自解压归档，并强制校验 GitHub Asset SHA-256 摘要。Cocos Dashboard 仅接受版本目录与文件名匹配的 `download.cocos.com/CocosDashboard` 安装包，要求精确匹配内置 SHA-256；Creator 仅接受 `download.cocos.com/CocosCreator` 下目录版本、文件名版本一致的稳定版 Windows ZIP。两者都要求厦门雅基软件有限公司的有效启动程序 Authenticode 签名与实际版本健康检查。用户已有的 Python Install Manager 始终保留；缺少时，SoftPilot 校验、临时注册并在任务后移除官方包。
 
 ## 下载来源
 
-Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。Python 始终使用官方来源。Redis 只使用固定的社区 Windows 归档源，每个版本都与 Redis 官方元数据交叉核对，不接受自定义源。MySQL 当前受支持目录固定为 8.4 LTS 和最终 5.7.44 兼容版，只使用 Oracle 官方来源，不提供镜像或自定义源。Git 只使用官方来源，不提供来源或版本选择。
+Node.js 与 Temurin 默认并发探测内置官方源和清华 TUNA 归档源，每个来源最多读取 64 KiB、等待四秒。网络失败可回退；完整性失败立即终止且不回退。Python 始终使用官方来源。Redis 只使用固定的社区 Windows 归档源，每个版本都与 Redis 官方元数据交叉核对，不接受自定义源。MySQL 当前受支持目录固定为 8.4 LTS 和最终 5.7.44 兼容版，只使用 Oracle 官方来源，不提供镜像或自定义源。Git、Cocos Dashboard 和 Cocos Creator 只使用官方来源；Git/Dashboard 不提供版本选择，Creator 界面只展示官方最新稳定版和本机已安装版本。Cocos Dashboard 官方域名返回 403 时，SoftPilot 可通过该域名公开的 CNAME 建立备用 CDN 连接，但请求 URL、Host 与 TLS SNI 始终保持 `download.cocos.com`。
 
 ## Redis 服务
 
@@ -67,8 +72,8 @@ Visual C++ Runtime 是系统级共享组件，不进入 MySQL 的 staging 回滚
 
 系统变量和 Hosts 写入被拒绝时，同一应用通过一次性暂存请求申请管理员权限。Hosts 保留原始编码，写入前备份到 `SoftPilotData\data\toolbox\hosts-backups`，最多保留 20 份。
 
-运行时、Git 和工具箱模块的显示与排序会立即更新并串行保存。
+运行时、Git、Cocos 和工具箱模块的显示与排序会立即更新并串行保存。
 
 ## 终端默认版本
 
-首次选择终端默认版本时保存用户 `PATH` 和 `JAVA_HOME`，再配置 SoftPilot shim、Node.js `current` 和 Java `JAVA_HOME`；始终不设置 `PYTHONHOME`。Redis 通过 `current\redis` 提供 `redis-server` 与 `redis-cli` shim；MySQL 通过 `current\mysql` 提供 `mysqld`、`mysql` 与 `mysqladmin` shim，选择版本都不会自动启动服务。清除最后一个选择时恢复快照。切换只替换 `current\<kind>`，核对实际版本并在失败时回滚。变更对新打开的终端生效。
+首次选择终端默认版本时保存用户 `PATH` 和 `JAVA_HOME`，再配置 SoftPilot shim；只有存在 Node.js 当前版本时才把 `current\node` 加入 `PATH`，只有存在 Java 当前版本时才把 `JAVA_HOME` 指向 `current\java`，始终不设置 `PYTHONHOME`。Redis 通过 `current\redis` 提供 `redis-server` 与 `redis-cli` shim；MySQL 通过 `current\mysql` 提供 `mysqld`、`mysql` 与 `mysqladmin` shim，选择版本都不会自动启动服务。清除 Node.js 或 Java 选择时立即移除对应环境引用，清除最后一个选择时恢复完整快照。切换会核对实际版本并在失败时回滚。变更对新打开的终端生效。

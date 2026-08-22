@@ -2,7 +2,7 @@
 
 ## 1. 项目定位与当前范围
 
-SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.9`，V1 聚焦：
+SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版本为 `0.0.10`，V1 聚焦：
 
 - Node.js 官方 Windows x64 ZIP。
 - Eclipse Temurin HotSpot JDK Windows x64 ZIP。
@@ -10,11 +10,12 @@ SoftPilot 是面向 Windows 的开发运行时生命周期管理器。当前版�
 - Redis 官方版本目录与 `redis-windows/redis-windows` Windows x64 MSYS2 社区构建，仅用于本地开发。
 - Oracle MySQL Community Server 官方 Windows x64 ZIP：8.4 LTS 推荐线与最终 5.7.44 兼容线，仅用于本地开发。
 - Git for Windows 官方最新版 x64 PortableGit，采用单一受管副本，不进入多版本或终端默认版本模型。
+- Cocos Dashboard 官方最新版 Windows x64 安装包，采用 `app\cocos` 下的单一受管副本；Cocos Creator 官方稳定版 Windows ZIP 采用 `app\cocos-creator\<version>` 下的多版本受管副本。
 - 官方版本发现、多版本安装、终端默认版本切换、外部运行时只读发现和永久卸载；Redis 额外支持单实例启动、停止和状态检查，MySQL 支持按版本线多实例启动、停止和状态检查。
 - Node.js 与 Eclipse Temurin 归档默认在官方源与清华 TUNA 镜像间智能选择；版本元数据和完整性信任链仍只使用官方来源。
 - WinUI 3 GUI、`spt` CLI、shim、单文件 EXE 发布和首次启动自迁移。
 
-除上述 Redis 单实例、MySQL 按版本线隔离的本地开发多实例和 Git 便携工具外，V1 不包含项目级版本绑定、自定义源、其他第三方镜像、其他数据库服务、Docker、AI CLI、普通软件和跨平台实现。Redis/MySQL V1 不注册 Windows Service、不设置开机启动。MySQL V1 不包含数据库/用户管理、备份恢复或跨大版本自动迁移。Git V1 只管理最新版便携副本，不修改用户 PATH、不接管外部 Git 安装，也不自动改写全局 `.gitconfig`。不要在无明确需求时提前引入这些范围。
+除上述 Redis 单实例、MySQL 按版本线隔离的本地开发多实例、Git 便携工具、Cocos Dashboard 和 Cocos Creator 编辑器外，V1 不包含项目级版本绑定、自定义源、其他第三方镜像、其他数据库服务、Docker、AI CLI、其他普通软件和跨平台实现。Redis/MySQL V1 不注册 Windows Service、不设置开机启动。MySQL V1 不包含数据库/用户管理、备份恢复或跨大版本自动迁移。Git V1 只管理最新版便携副本，不修改用户 PATH、不接管外部 Git 安装，也不自动改写全局 `.gitconfig`。Cocos V1 管理工作区内的 Creator 编辑器版本，但不接管外部 Creator、项目、扩展、共享设置或账号数据，也不修改 PATH。不要在无明确需求时提前引入这些范围。
 
 开始修改前按任务需要阅读：
 
@@ -47,6 +48,7 @@ SoftPilot 应用根目录只包含可替换的 `SoftPilot.exe` 和独立的 `Sof
 - 卸载是永久操作：先移动到 staging，状态删除成功后再物理删除；失败时恢复目录和状态。
 - Redis 卸载默认保留按版本隔离的数据和日志；只有用户明确选择删除数据时，才把对应数据和日志目录纳入同一 staging 卸载事务并支持失败回滚。
 - MySQL 卸载默认保留按 `major.minor` 版本线隔离的数据、配置、DPAPI 凭据和日志；只有用户明确选择删除数据时，才把整条版本线纳入同一 staging 卸载事务并支持失败回滚。
+- Cocos Creator 按完整版本隔离安装和下载缓存；卸载所选版本时删除对应受管编辑器与缓存，但始终保留 `%USERPROFILE%\.CocosCreator`、扩展和所有项目目录。
 - 应用根目录记录在 `HKCU\Software\SoftPilot\Root`。V1 不支持首次指定后的管理目录迁移。
 
 应用根目录解析必须保持大小写敏感的 ordinal 规则：只有规范化后末级名称精确等于 `SoftPilot` 时才不追加目录名。
@@ -62,6 +64,8 @@ Provider 只能使用当前范围内的官方元数据和官方发布资产。No
 - MySQL：只接受内置受支持目录中的 Oracle 官方 Windows x64 ZIP，当前为 8.4 LTS 与最终 5.7.44；归档固定来自 `cdn.mysql.com`，并使用 `repo.mysql.com` 官方公钥和固定主密钥指纹验证同名 `.asc` 分离签名。
 - MySQL 安装前检测 HKLM 中 Microsoft Visual C++ x64 v14 Runtime；低于 `14.29.30157` 或缺失时，只允许从 Microsoft 官方 `aka.ms/vc14/vc_redist.x64.exe` 下载，必须验证有效 Authenticode 签名和 Microsoft Corporation 发布者后再通过 UAC 安装。该系统共享组件不随 MySQL 卸载或事务失败回滚；需要重启时中止 MySQL 安装并提示重试。
 - Git：只使用 `git-for-windows/git` 官方最新稳定 Release 的 `PortableGit-*-64-bit.7z.exe`，必须校验 GitHub 提供的 SHA-256 digest，并在 staging 中解包和核对 `git --version` 后才可替换 `app\git` 唯一受管目录。
+- Cocos Dashboard：只从 Cocos 官方下载页发现 `download.cocos.com/CocosDashboard` 下版本目录与文件名一致的 Windows 安装包；版本必须存在于内置 SHA-256 目录，且安装包与提取后的 `CocosDashboard.exe` 都必须具有厦门雅基软件有限公司的有效 Authenticode 签名。官方域名返回 403 时，可通过其公开 CNAME `download.cocos.com.wtxcdn.com` 建立备用连接，但请求 URL、Host 与 TLS SNI 必须保持 `download.cocos.com`，不得改用其他资产来源。安装包只能在 staging 中提取为 MSI 管理映像，健康检查通过后原子替换 `app\cocos`；不得执行系统安装、写入 HKLM 或要求 UAC。
+- Cocos Creator：只从同一 Cocos 官方下载页发现 `download.cocos.com/CocosCreator/v<version>/CocosCreator-v<version>-win-<build>.zip` 稳定版资产。Cocos 当前未发布这些 ZIP 的 SHA-256，SoftPilot 必须在 HTTPS 下载过程中计算 SHA-256、写入版本缓存并在解包前复核；随后使用防目录穿越的 ZIP 解包，要求 `CocosCreator.exe` 具有厦门雅基软件有限公司的有效 Authenticode 签名且文件实际版本精确匹配，最后才能原子提交到 `app\cocos-creator\<version>`。
 
 必须遵守：
 
@@ -76,8 +80,8 @@ Provider 只能使用当前范围内的官方元数据和官方发布资产。No
 ## 5. 全局切换与 Shell 集成
 
 - Shell 集成由终端默认版本选择自动管理，不提供独立开关。
-- 用户 PATH 前部顺序固定为 `<SoftPilotRoot>\SoftPilotData\tools\shims`、`<SoftPilotRoot>\SoftPilotData\current\node`，随后才是用户原 PATH。
-- `JAVA_HOME` 指向 `<SoftPilotRoot>\SoftPilotData\current\java`；Python 不设置 `PYTHONHOME`。
+- 用户 PATH 首项固定为 `<SoftPilotRoot>\SoftPilotData\tools\shims`；仅在 Node.js 存在终端默认版本时追加 `<SoftPilotRoot>\SoftPilotData\current\node`，随后才是用户原 PATH。
+- 仅在 Java 存在终端默认版本时让 `JAVA_HOME` 指向 `<SoftPilotRoot>\SoftPilotData\current\java`，清除选择时恢复原值；Python 不设置 `PYTHONHOME`。
 - 启用前保存原 PATH 和 `JAVA_HOME`，禁用时安全恢复快照。
 - 版本切换只更新 `current\<kind>` 链接，不重写 PATH。
 - 链接替换后必须通过对应 Provider 重新执行健康检查并核对实际版本；失败时恢复旧链接和状态。
@@ -119,7 +123,7 @@ dotnet format SoftPilot.slnx --verify-no-changes --no-restore
 开发包命令：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.9
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\eng\package.ps1 -Version 0.0.10
 ```
 
 未提供证书指纹时生成的是未签名开发构建，不得描述为已签名发布版本。打包不等于首次启动；除非任务明确要求，不要自动运行生成的便携应用或修改用户环境。

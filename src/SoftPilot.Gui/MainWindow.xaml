@@ -431,6 +431,13 @@
                     <ImageIcon Source="Assets/RuntimeIcons/git.svg" Width="20" Height="20" Foreground="#F03C2E" />
                 </NavigationViewItem.Icon>
             </NavigationViewItem>
+            <NavigationViewItem x:Name="CocosNavigationItem" Content="Cocos" Tag="cocos"
+                                Visibility="{x:Bind ViewModel.CocosModuleVisibility, Mode=OneWay}"
+                                AutomationProperties.Name="Cocos module">
+                <NavigationViewItem.Icon>
+                    <ImageIcon Source="Assets/RuntimeIcons/cocos.svg" Width="20" Height="20" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
             <NavigationViewItem x:Name="ToolboxNavigationItem"
                                 Content="{x:Bind ViewModel.ToolboxText, Mode=OneWay}"
                                 Tag="toolbox"
@@ -1021,6 +1028,249 @@
                                         </DataTemplate>
                                     </ListView.ItemTemplate>
                                 </ListView>
+                            </StackPanel>
+                        </Border>
+
+                    </StackPanel>
+                </ScrollViewer>
+
+                <ScrollViewer x:Name="CocosView" Visibility="Collapsed"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollMode="Disabled"
+                              HorizontalScrollBarVisibility="Disabled"
+                              HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="20" HorizontalAlignment="Stretch">
+                        <Border Background="{ThemeResource SoftPilotCardBackground}" CornerRadius="12" Padding="8,8,8,16">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="{x:Bind ViewModel.CocosDashboardTitle, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}" Margin="12,4,12,0" />
+                                <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                        CornerRadius="8" Height="48">
+                                    <Grid Padding="20,0" ColumnSpacing="24">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="200" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind ViewModel.CocosInstalledVersionLabel, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                        <Grid Grid.Column="1">
+                                            <TextBlock Text="{x:Bind ViewModel.CocosLatestVersionLabel, Mode=OneWay}"
+                                                       Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                       IsHitTestVisible="False" />
+                                            <controls:StableHyperlinkButton
+                                                Style="{StaticResource CellLinkOverlayStyle}"
+                                                Canvas.ZIndex="1"
+                                                Tag="{x:Bind ViewModel.CocosReleasePageUrl, Mode=OneWay}"
+                                                Visibility="{x:Bind ViewModel.CocosReleasePageVisibility, Mode=OneWay}"
+                                                Click="OnOpenCocosReleaseClick"
+                                                ToolTipService.ToolTip="{x:Bind ViewModel.CocosReleasePageUrl, Mode=OneWay}"
+                                                AutomationProperties.Name="Open official Cocos Creator download page" />
+                                        </Grid>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.CocosInstallPathLabel, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                   HorizontalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+
+                                <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        BorderThickness="0,0,0,1">
+                                    <Grid Padding="20,0" ColumnSpacing="24" MinHeight="60">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="200" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind ViewModel.CocosInstalledVersion, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableCellTextStyle}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.CocosLatestVersion, Mode=OneWay}"
+                                                   Style="{StaticResource RuntimeTableCellTextStyle}"
+                                                   ToolTipService.ToolTip="{x:Bind ViewModel.CocosDownloadUrl, Mode=OneWay}" />
+                                        <Grid Grid.Column="2" ColumnSpacing="4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Bind ViewModel.CocosInstallPath, Mode=OneWay}"
+                                                       Style="{StaticResource RuntimeTableCellTextStyle}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       IsHitTestVisible="False" />
+                                            <controls:StableHyperlinkButton
+                                                Style="{StaticResource CellLinkOverlayStyle}"
+                                                Canvas.ZIndex="1"
+                                                Visibility="{x:Bind ViewModel.CocosInstalledActionsVisibility, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.CanUseInstalledCocos, Mode=OneWay}"
+                                                Click="OnOpenCocosFolderClick"
+                                                ToolTipService.ToolTip="{x:Bind ViewModel.CocosInstallPath, Mode=OneWay}"
+                                                AutomationProperties.Name="Open Cocos Dashboard installation directory" />
+                                            <controls:StableCursorButton Grid.Column="1" Style="{StaticResource IconButtonStyle}"
+                                                                         Width="36" Height="36"
+                                                                         Visibility="{x:Bind ViewModel.CocosInstalledActionsVisibility, Mode=OneWay}"
+                                                                         IsEnabled="{x:Bind ViewModel.CanUseInstalledCocos, Mode=OneWay}"
+                                                                         Click="OnCopyCocosPathClick"
+                                                                         ToolTipService.ToolTip="{x:Bind ViewModel.CocosCopyPathToolTip, Mode=OneWay}"
+                                                                         AutomationProperties.Name="Copy Cocos Dashboard installation path">
+                                                <FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                                            </controls:StableCursorButton>
+                                        </Grid>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <controls:StableHyperlinkButton
+                                                Content="{x:Bind ViewModel.CocosPrimaryActionText, Mode=OneWay}"
+                                                Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                Visibility="{x:Bind ViewModel.CocosPrimaryActionVisibility, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.CanRunCocosAction, Mode=OneWay}"
+                                                Click="OnInstallOrUpgradeCocosClick" />
+                                            <controls:StableHyperlinkButton
+                                                Content="{x:Bind ViewModel.CocosUninstallText, Mode=OneWay}"
+                                                Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                Visibility="{x:Bind ViewModel.CocosInstalledActionsVisibility, Mode=OneWay}"
+                                                IsEnabled="{x:Bind ViewModel.CanUseInstalledCocos, Mode=OneWay}"
+                                                Click="OnUninstallCocosClick" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal" Spacing="12" Margin="12,0"
+                                            Visibility="{x:Bind ViewModel.CocosInstalledActionsVisibility, Mode=OneWay}">
+                                    <controls:StableCursorButton Content="{x:Bind ViewModel.CocosLaunchText, Mode=OneWay}"
+                                                                 IsEnabled="{x:Bind ViewModel.CanLaunchCocos, Mode=OneWay}"
+                                                                 Click="OnLaunchCocosClick" MinWidth="168" />
+                                </StackPanel>
+
+                                <StackPanel Spacing="8" Margin="12,0"
+                                            Visibility="{x:Bind ViewModel.CocosOperationVisibility, Mode=OneWay}">
+                                    <ProgressBar Minimum="0" Maximum="100"
+                                                 Value="{x:Bind ViewModel.CocosOperationPercentage, Mode=OneWay}"
+                                                 IsIndeterminate="False"
+                                                 Visibility="{x:Bind ViewModel.CocosProgressVisibility, Mode=OneWay}" />
+                                    <TextBlock Text="{x:Bind ViewModel.CocosOperationText, Mode=OneWay}"
+                                               Foreground="{ThemeResource SoftPilotSubtleText}" />
+                                </StackPanel>
+                                <InfoBar IsOpen="True" Severity="Error" Margin="12,0"
+                                         Visibility="{x:Bind ViewModel.CocosProblemVisibility, Mode=OneWay}"
+                                         Message="{x:Bind ViewModel.CocosProblemText, Mode=OneWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{ThemeResource SoftPilotCardBackground}" CornerRadius="12" Padding="8,8,8,16">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="{x:Bind ViewModel.CocosCreatorTitle, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}" Margin="12,4,12,0" />
+                                <TextBlock Text="{x:Bind ViewModel.CocosCreatorEmptyText, Mode=OneWay}"
+                                           Visibility="{x:Bind ViewModel.CocosCreatorEmptyVisibility, Mode=OneWay}"
+                                           Foreground="{ThemeResource SoftPilotSubtleText}"
+                                           HorizontalAlignment="Center" Margin="0,36" />
+                                <ListView ItemsSource="{x:Bind ViewModel.CocosCreatorVersions}"
+                                          SelectionMode="None" HorizontalContentAlignment="Stretch"
+                                          ItemContainerStyle="{StaticResource RuntimeTableListItemStyle}"
+                                          AutomationProperties.Name="Cocos Creator version management list">
+                                    <ListView.Header>
+                                        <Border Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                CornerRadius="8" Height="48">
+                                            <Grid Padding="20,0" ColumnSpacing="24">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="150" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="130" />
+                                                    <ColumnDefinition Width="240" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind ViewModel.CocosCreatorVersionHeader, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.CocosInstallPathLabel, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}" />
+                                                <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.CocosCreatorStatusHeader, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                           HorizontalAlignment="Center" />
+                                                <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.OperationHeaderText, Mode=OneWay}"
+                                                           Style="{StaticResource RuntimeTableHeaderTextStyle}"
+                                                           HorizontalAlignment="Center" />
+                                            </Grid>
+                                        </Border>
+                                    </ListView.Header>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                    BorderThickness="0,0,0,1">
+                                                <Grid Padding="20,0" ColumnSpacing="24" MinHeight="64">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="150" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="130" />
+                                                        <ColumnDefinition Width="240" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Version}"
+                                                               Style="{StaticResource RuntimeTableCellTextStyle}" />
+                                                    <Grid Grid.Column="1">
+                                                        <TextBlock Text="{Binding InstallDirectory}"
+                                                                   Style="{StaticResource RuntimeTableCellTextStyle}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   IsHitTestVisible="False" />
+                                                        <controls:StableHyperlinkButton
+                                                            Style="{StaticResource CellLinkOverlayStyle}"
+                                                            Visibility="{Binding InstalledActionsVisibility}"
+                                                            IsEnabled="{Binding CanUninstall}"
+                                                            Click="OnOpenCocosCreatorFolderClick"
+                                                            ToolTipService.ToolTip="{Binding InstallDirectory}"
+                                                            AutomationProperties.Name="Open Cocos Creator installation directory" />
+                                                    </Grid>
+                                                    <StackPanel Grid.Column="2" Spacing="4"
+                                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusBrush}"
+                                                                   HorizontalAlignment="Center" />
+                                                        <TextBlock Text="{Binding Problem}" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                                   Visibility="{Binding ProblemVisibility}"
+                                                                   TextTrimming="CharacterEllipsis" MaxWidth="120"
+                                                                   ToolTipService.ToolTip="{Binding Problem}" />
+                                                    </StackPanel>
+                                                    <Grid Grid.Column="3">
+                                                        <StackPanel Orientation="Horizontal" Spacing="10"
+                                                                    Visibility="{Binding ActionsVisibility}"
+                                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                            <controls:StableHyperlinkButton Content="{Binding InstallText}"
+                                                                                            Visibility="{Binding InstallVisibility}"
+                                                                                            IsEnabled="{Binding CanInstall}"
+                                                                                            Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                                                            Click="OnInstallCocosCreatorClick" />
+                                                            <controls:StableHyperlinkButton Content="{Binding LaunchText}"
+                                                                                            Visibility="{Binding InstalledActionsVisibility}"
+                                                                                            IsEnabled="{Binding CanLaunch}"
+                                                                                            Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                                                            Click="OnLaunchCocosCreatorClick" />
+                                                            <controls:StableHyperlinkButton Content="{Binding UninstallText}"
+                                                                                            Visibility="{Binding InstalledActionsVisibility}"
+                                                                                            IsEnabled="{Binding CanUninstall}"
+                                                                                            Style="{StaticResource RuntimeOperationButtonStyle}"
+                                                                                            Click="OnUninstallCocosCreatorClick" />
+                                                        </StackPanel>
+                                                        <StackPanel Spacing="4" Visibility="{Binding ProgressVisibility}"
+                                                                    VerticalAlignment="Center">
+                                                            <ProgressBar Minimum="0" Maximum="100"
+                                                                         Value="{Binding OperationPercentage}" />
+                                                            <TextBlock Text="{Binding OperationText}" FontSize="12"
+                                                                       Foreground="{ThemeResource SoftPilotSubtleText}"
+                                                                       HorizontalAlignment="Center"
+                                                                       TextTrimming="CharacterEllipsis" MaxWidth="220" />
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding OperationText}"
+                                                                   Visibility="{Binding FeedbackVisibility}"
+                                                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                                   TextTrimming="CharacterEllipsis" MaxWidth="220"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                   ToolTipService.ToolTip="{Binding OperationText}" />
+                                                    </Grid>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                                <InfoBar IsOpen="True" Severity="Error" Margin="12,0"
+                                         Visibility="{x:Bind ViewModel.CocosCreatorProblemVisibility, Mode=OneWay}"
+                                         Message="{x:Bind ViewModel.CocosCreatorProblemText, Mode=OneWay}" />
                             </StackPanel>
                         </Border>
 

@@ -28,22 +28,34 @@ public sealed class WindowsShellIntegrationService : IShellIntegrationService
         var enabled = entries.Contains(_layout.ShimsDirectory, StringComparer.OrdinalIgnoreCase);
         var firstMatch = string.Equals(first, _layout.ShimsDirectory, StringComparison.OrdinalIgnoreCase);
         var nodePathPresent = entries.Contains(nodeCurrent, StringComparer.OrdinalIgnoreCase);
+        var nodeCurrentExists = Directory.Exists(nodeCurrent);
         var expectedJavaHome = _layout.GetCurrentLink(RuntimeKind.Java);
         var javaMatches = string.Equals(javaHome, expectedJavaHome, StringComparison.OrdinalIgnoreCase);
+        var javaCurrentExists = Directory.Exists(expectedJavaHome);
         var problems = new List<string>();
         if (enabled && !firstMatch)
         {
             problems.Add("SoftPilot shims 不在用户 PATH 首位");
         }
 
-        if (enabled && !nodePathPresent)
+        if (enabled && nodeCurrentExists && !nodePathPresent)
         {
             problems.Add("Node.js 当前版本目录不在用户 PATH 中，全局 npm 命令将不可用");
         }
 
-        if (enabled && !javaMatches)
+        if (enabled && !nodeCurrentExists && nodePathPresent)
+        {
+            problems.Add("用户 PATH 仍包含已清除的 Node.js 当前版本目录");
+        }
+
+        if (enabled && javaCurrentExists && !javaMatches)
         {
             problems.Add("JAVA_HOME 已被其他工具修改");
+        }
+
+        if (enabled && !javaCurrentExists && javaMatches)
+        {
+            problems.Add("JAVA_HOME 仍指向已清除的 Java 当前版本目录");
         }
 
         var problem = problems.Count == 0 ? null : string.Join("；", problems) + "。";
@@ -54,11 +66,17 @@ public sealed class WindowsShellIntegrationService : IShellIntegrationService
     {
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(_layout.DataDirectory);
+        var nodeCurrent = _layout.GetCurrentLink(RuntimeKind.Node);
+        var javaCurrent = _layout.GetCurrentLink(RuntimeKind.Java);
         if (!File.Exists(_snapshotPath))
         {
+            var capturedPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? string.Empty;
+            var existingJavaHome = Environment.GetEnvironmentVariable("JAVA_HOME", EnvironmentVariableTarget.User);
             var snapshot = new ShellEnvironmentSnapshot(
-                Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User),
-                Environment.GetEnvironmentVariable("JAVA_HOME", EnvironmentVariableTarget.User),
+                BuildDisabledPath(capturedPath, _layout.ShimsDirectory, nodeCurrent),
+                string.Equals(existingJavaHome, javaCurrent, StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : existingJavaHome,
                 DateTimeOffset.UtcNow);
             await WriteSnapshotAsync(snapshot, cancellationToken);
         }
@@ -67,12 +85,25 @@ public sealed class WindowsShellIntegrationService : IShellIntegrationService
         var newPath = BuildEnabledPath(
             existingPath,
             _layout.ShimsDirectory,
-            _layout.GetCurrentLink(RuntimeKind.Node));
+            nodeCurrent,
+            includeNodeCurrent: Directory.Exists(nodeCurrent));
         Environment.SetEnvironmentVariable("PATH", newPath, EnvironmentVariableTarget.User);
-        Environment.SetEnvironmentVariable(
-            "JAVA_HOME",
-            _layout.GetCurrentLink(RuntimeKind.Java),
-            EnvironmentVariableTarget.User);
+        if (Directory.Exists(javaCurrent))
+        {
+            Environment.SetEnvironmentVariable("JAVA_HOME", javaCurrent, EnvironmentVariableTarget.User);
+        }
+        else if (string.Equals(
+                     Environment.GetEnvironmentVariable("JAVA_HOME", EnvironmentVariableTarget.User),
+                     javaCurrent,
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            var snapshot = await ReadSnapshotAsync(cancellationToken);
+            Environment.SetEnvironmentVariable(
+                "JAVA_HOME",
+                snapshot.OriginalJavaHome,
+                EnvironmentVariableTarget.User);
+        }
+
         BroadcastEnvironmentChange();
     }
 
@@ -99,23 +130,27 @@ public sealed class WindowsShellIntegrationService : IShellIntegrationService
             return;
         }
 
-        ShellEnvironmentSnapshot snapshot;
-        await using (var stream = new FileStream(
-            _snapshotPath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read | FileShare.Delete,
-            4096,
-            FileOptions.Asynchronous | FileOptions.SequentialScan))
-        {
-            snapshot = await JsonSerializer.DeserializeAsync<ShellEnvironmentSnapshot>(stream, cancellationToken: cancellationToken)
-                ?? throw new SoftPilotException("Shell 环境快照损坏，已停止恢复以避免覆盖用户配置。");
-        }
+        var snapshot = await ReadSnapshotAsync(cancellationToken);
 
         Environment.SetEnvironmentVariable("PATH", snapshot.OriginalPath, EnvironmentVariableTarget.User);
         Environment.SetEnvironmentVariable("JAVA_HOME", snapshot.OriginalJavaHome, EnvironmentVariableTarget.User);
         File.Delete(_snapshotPath);
         BroadcastEnvironmentChange();
+    }
+
+    private async Task<ShellEnvironmentSnapshot> ReadSnapshotAsync(CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            _snapshotPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read | FileShare.Delete,
+            4096,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return await JsonSerializer.DeserializeAsync<ShellEnvironmentSnapshot>(
+                   stream,
+                   cancellationToken: cancellationToken)
+               ?? throw new SoftPilotException("Shell 环境快照损坏，已停止恢复以避免覆盖用户配置。");
     }
 
     private async Task WriteSnapshotAsync(ShellEnvironmentSnapshot snapshot, CancellationToken cancellationToken)
@@ -146,12 +181,19 @@ public sealed class WindowsShellIntegrationService : IShellIntegrationService
         .Where(entry => entry.Length > 0)
         .ToArray();
 
-    internal static string BuildEnabledPath(string existingPath, string shimsDirectory, string nodeCurrentDirectory)
+    internal static string BuildEnabledPath(
+        string existingPath,
+        string shimsDirectory,
+        string nodeCurrentDirectory,
+        bool includeNodeCurrent = true)
     {
         var managedPaths = new[] { shimsDirectory, nodeCurrentDirectory };
         var remaining = SplitPath(existingPath)
             .Where(entry => !managedPaths.Contains(entry, StringComparer.OrdinalIgnoreCase));
-        return string.Join(Path.PathSeparator, managedPaths.Concat(remaining));
+        var enabledPaths = includeNodeCurrent
+            ? managedPaths
+            : [shimsDirectory];
+        return string.Join(Path.PathSeparator, enabledPaths.Concat(remaining));
     }
 
     internal static string BuildDisabledPath(string existingPath, string shimsDirectory, string nodeCurrentDirectory)

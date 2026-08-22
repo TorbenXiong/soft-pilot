@@ -22,6 +22,8 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
     public string TrashDirectory => Path.Combine(ManagementDirectory, "trash");
     public string LogsDirectory => Path.Combine(ManagementDirectory, "logs");
     public string GitDirectory => Path.Combine(AppDirectory, "git");
+    public string CocosDirectory => Path.Combine(AppDirectory, "cocos");
+    public string CocosCreatorDirectory => Path.Combine(AppDirectory, "cocos-creator");
 
     public string GetRuntimeDirectory(RuntimeKind kind, string version) =>
         Path.Combine(AppDirectory, GetKindName(kind), version);
@@ -38,6 +40,9 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
     public string GetRedisLogPath(string version) =>
         Path.Combine(LogsDirectory, "redis", version, "redis.log");
 
+    public string GetRedisServiceStatePath() =>
+        Path.Combine(DataDirectory, "redis", "service-state.json");
+
     public string GetMySqlDataDirectory(string version) =>
         Path.Combine(DataDirectory, "mysql", GetReleaseLine(version), "data");
 
@@ -46,6 +51,12 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
 
     public string GetMySqlConfigPath(string version) =>
         Path.Combine(DataDirectory, "mysql", GetReleaseLine(version), "my.ini");
+
+    public string GetCocosCreatorDirectory(string version) =>
+        Path.Combine(CocosCreatorDirectory, ValidateVersion(version));
+
+    public string GetCocosCreatorDownloadDirectory(string version) =>
+        Path.Combine(DownloadsDirectory, "cocos-creator", ValidateVersion(version));
 
     public void EnsureWorkspace()
     {
@@ -85,5 +96,20 @@ public sealed class WindowsInstallationLayout : IInstallationLayout
         }
 
         return $"{parts[0]}.{parts[1]}";
+    }
+
+    private static string ValidateVersion(string version)
+    {
+        if (!Version.TryParse(version, out var parsed)
+            || parsed.Major < 0
+            || parsed.Minor < 0
+            || parsed.Build < 0
+            || parsed.Revision >= 0
+            || !string.Equals(parsed.ToString(3), version, StringComparison.Ordinal))
+        {
+            throw new ArgumentException($"Cocos Creator 版本号无效：{version}", nameof(version));
+        }
+
+        return version;
     }
 }

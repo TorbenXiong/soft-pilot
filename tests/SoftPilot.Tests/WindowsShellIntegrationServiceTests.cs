@@ -34,4 +34,22 @@ public sealed class WindowsShellIntegrationServiceTests
 
         Assert.AreEqual(@"C:\Tools", result);
     }
+
+    [TestMethod]
+    public void BuildEnabledPath_WhenNodeIsNotCurrent_RemovesStaleNodeEntry()
+    {
+        var result = WindowsShellIntegrationService.BuildEnabledPath(
+            @"D:\SoftPilot\SoftPilotData\current\node;C:\Tools;D:\SoftPilot\SoftPilotData\tools\shims",
+            @"D:\SoftPilot\SoftPilotData\tools\shims",
+            @"D:\SoftPilot\SoftPilotData\current\node",
+            includeNodeCurrent: false);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                @"D:\SoftPilot\SoftPilotData\tools\shims",
+                @"C:\Tools",
+            },
+            result.Split(Path.PathSeparator));
+    }
 }

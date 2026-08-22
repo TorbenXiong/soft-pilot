@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-SoftPilot is a portable Windows application for managing Node.js, Java, Python, Redis/MySQL for local development, and the latest portable Git for Windows.
+SoftPilot is a portable Windows application for managing Node.js, Java, Python, Redis/MySQL for local development, the latest portable Git for Windows, and Cocos Dashboard/Creator.
 
 ## Get started
 
@@ -15,12 +15,13 @@ To upgrade, exit SoftPilot and replace the existing `SoftPilot.exe` with the new
 
 ## Download sources
 
-Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Python remains official-only. Redis versions are cross-checked with official Redis releases; Windows x64 archives come from the community `redis-windows/redis-windows` project and are accepted only with GitHub-provided SHA-256 digests. MySQL uses official Oracle Windows x64 ZIP archives with official detached OpenPGP signatures. If a compatible Microsoft Visual C++ x64 Runtime is missing, MySQL installation downloads it from Microsoft's official permalink, verifies its Authenticode signature, and requests administrator approval to install it. Git uses the latest x64 PortableGit asset from the official Git for Windows GitHub repository and also requires its GitHub-provided SHA-256 digest.
+Node.js and Temurin archives automatically use the faster responsive source after small HTTPS probes against the official source and the built-in TUNA mirror. Python remains official-only. Redis versions are cross-checked with official Redis releases; Windows x64 archives come from the community `redis-windows/redis-windows` project and are accepted only with GitHub-provided SHA-256 digests. MySQL uses official Oracle Windows x64 ZIP archives with official detached OpenPGP signatures. If a compatible Microsoft Visual C++ x64 Runtime is missing, MySQL installation downloads it from Microsoft's official permalink, verifies its Authenticode signature, and requests administrator approval to install it. Git uses the latest x64 PortableGit asset from the official Git for Windows GitHub repository and also requires its GitHub-provided SHA-256 digest. Cocos Dashboard metadata and installers come only from the official Cocos website and `download.cocos.com`; each supported installer must match SoftPilot's pinned SHA-256 catalog, and installers and installed launchers must carry a valid Authenticode signature from Xiamen Yaji Software Co., Ltd. Creator stable catalogs and ZIPs are restricted to the same official page and domain. Cocos currently publishes no SHA-256 for these ZIPs, so SoftPilot calculates and rechecks the cache hash before extraction and requires the editor launcher to have the official Authenticode signature and exact expected version.
 
 ## Features
 
 - Discover supported versions from trusted Node.js, Eclipse Temurin, Python, Redis, and MySQL catalogs.
 - Install and manage multiple runtime versions side by side.
+- Safely upgrade Node.js, Java, Python, Redis, and MySQL when a newer patch is available in the same release line. SoftPilot installs and health-checks the new version before switching, keeps the old version for rollback, and automatically moves the terminal default when it pointed to the older version.
 - Choose a terminal-default version without reinstalling or removing other versions.
 - Configure `node`, `npm`, `npx`, Java, Python, Redis, and MySQL command entries automatically for newly opened terminals.
 - Manage the latest verified patch from each available Redis major line and run one local instance with version-specific data and logs on `127.0.0.1:6379`.
@@ -28,10 +29,12 @@ Node.js and Temurin archives automatically use the faster responsive source afte
 - Detect runtimes installed outside SoftPilot in read-only mode.
 - Show download progress and operation results directly beside each version.
 - Permanently uninstall versions that are no longer needed.
-- Install, launch, upgrade, and uninstall a single managed copy of the latest portable Git for Windows without changing the user `PATH` or other Git installations; inspect SSH and Git LFS component health and explicitly edit global `user.name` and `user.email` from the Git page. Uninstall preserves the unified download cache and global Git configuration, including `user.name` and `user.email`.
+- Install, launch, upgrade, and uninstall a single managed copy of the latest portable Git for Windows without changing the user `PATH` or other Git installations; inspect SSH and Git LFS component health and explicitly edit global `user.name` and `user.email` from the Git page. Uninstall removes the managed copy and its installer cache while preserving global Git configuration, SSH keys, credentials, and repositories.
+- Install, launch, upgrade, and uninstall one managed copy of the latest official Cocos Dashboard under `SoftPilotData\app\cocos`, without writing to a system installation directory or HKLM. Uninstall removes the managed copy and installer cache and can explicitly remove `%USERPROFILE%\.Cocos` Dashboard account and settings data; Creator editors, `.CocosCreator`, and project directories are always preserved.
+- Install, upgrade, launch, and uninstall multiple official stable Cocos Creator versions side by side under `SoftPilotData\app\cocos-creator\<version>`. Upgrade preserves the previous editor for rollback. Uninstall removes only the selected managed editor and version cache while preserving shared `.CocosCreator` settings, extensions, and every project directory.
 - Use the local toolbox to beautify, minify, and validate JSON with maintained history, environment variables, and Windows Hosts. `Path` supports row-based editing, ordering, and missing-path warnings; machine-variable and Hosts saves request elevation automatically, and Hosts is backed up before writing.
 - Apply and save module visibility and order changes immediately.
-- Switch between English and Simplified Chinese. English is the default.
+- Switch between Simplified Chinese and English. Simplified Chinese is the default.
 
 ## Supported environment
 
@@ -43,8 +46,10 @@ Node.js and Temurin archives automatically use the faster responsive source afte
 - Redis x64 community builds from `redis-windows/redis-windows`, for local development only
 - Oracle MySQL Community Server Windows x64 ZIP archives (8.4 LTS recommended; 5.7.44 for legacy compatibility only)
 - Latest Git for Windows PortableGit x64 release
+- Latest official Cocos Dashboard Windows x64 release
+- Official stable Cocos Creator Windows ZIP releases
 
-The unified download cache lives under `SoftPilotData\cache\downloads`. On every startup, SoftPilot automatically removes cache files older than 30 days and deletes empty directories; individual module uninstall operations do not manage cache. Use `spt cache clean` when an immediate full cleanup is needed.
+The unified download cache lives under `SoftPilotData\cache\downloads`. Uninstall removes archives, signatures, and helper cache entries that can be safely attributed to the target version or module. Other cache files expire after 30 days during startup; use `spt cache clean` for immediate full cleanup.
 
 ## Redis CLI
 
@@ -75,3 +80,9 @@ spt runtime uninstall mysql@8.4.11 --delete-data   # Permanently deletes them
 ```
 
 MySQL 8.4 and 5.7 can run concurrently and default to ports `3306` and `3307`; each stopped version can use another non-conflicting port. Each row's password action copies only that version's root password, protected for the current Windows user with DPAPI. First start performs secure initialization with TCP disabled, and regular instances bind only to loopback; SoftPilot installs neither a Windows Service nor automatic startup. MySQL 5.7.44 is for legacy compatibility, while new projects should use 8.4 LTS. When a compatible Visual C++ x64 Runtime is absent, SoftPilot verifies Microsoft's signature and requests administrator approval to install it; this shared system component is not removed with MySQL.
+
+## Cocos
+
+The Cocos module discovers the latest Dashboard installer and stable Creator Windows ZIPs from the official Cocos Creator download page. The Creator version list shows only the latest official stable release and versions already installed on this machine. Dashboard validates the official HTTPS origin, pinned SHA-256, and Cocos Authenticode publisher, extracts into isolated staging, verifies the actual version and signature, and atomically replaces `SoftPilotData\app\cocos`. A newly published Dashboard remains blocked until its hash is included in a SoftPilot update.
+
+Creator archives are cached per version under `SoftPilotData\cache\downloads\cocos-creator\<version>`. SoftPilot calculates SHA-256 while downloading and rechecks it before safe ZIP extraction, verifies the official signature and actual version of `CocosCreator.exe`, and commits the editor to `SoftPilotData\app\cocos-creator\<version>`. Neither flow registers a system application, writes HKLM, or modifies `PATH`. Dashboard uninstall may explicitly remove `%USERPROFILE%\.Cocos`; Creator uninstall removes only the selected managed editor and cache while always preserving `.CocosCreator`, shared extensions, and projects.

@@ -105,7 +105,7 @@ public sealed class MySqlServiceManager : IMySqlServiceManager
                     cancellationToken: cancellationToken)
                 ?? throw new RuntimeNotFoundException(RuntimeKind.MySql, version);
             var health = await _provider.CheckHealthAsync(installation.InstallPath, cancellationToken);
-            if (!health.IsHealthy || !RuntimeVersionMatcher.AreEquivalent(version, health.DetectedVersion))
+            if (!health.IsHealthy || !RuntimeVersionMatcher.AreEquivalent(RuntimeKind.MySql, version, health.DetectedVersion))
             {
                 throw new SoftPilotException(
                     $"MySQL {version} 启动前健康检查失败：{health.Error ?? $"实际版本 {health.DetectedVersion}"}");
@@ -475,7 +475,7 @@ public sealed class MySqlServiceManager : IMySqlServiceManager
                         cancellationToken: cancellationToken),
                     port: state.Port);
                 var actual = result.StandardOutput.Trim();
-                if (result.ExitCode == 0 && RuntimeVersionMatcher.AreEquivalent(state.Version, actual))
+                if (result.ExitCode == 0 && RuntimeVersionMatcher.AreEquivalent(RuntimeKind.MySql, state.Version, actual))
                 {
                     if (IsOwnedProcessRunning(state) && IsListenerOwnedBy(state.Port, state.ProcessId))
                     {

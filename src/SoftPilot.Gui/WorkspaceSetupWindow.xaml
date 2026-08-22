@@ -28,8 +28,8 @@
             </StackPanel>
             <ComboBox x:Name="LanguageBox" Grid.Column="1" MinWidth="128"
                       VerticalAlignment="Top" SelectionChanged="OnLanguageChanged">
-                <ComboBoxItem Content="English" Tag="en-US" />
                 <ComboBoxItem Content="简体中文" Tag="zh-CN" />
+                <ComboBoxItem Content="English" Tag="en-US" />
             </ComboBox>
         </Grid>
 
