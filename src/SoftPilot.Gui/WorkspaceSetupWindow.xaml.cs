@@ -53,7 +53,7 @@ public sealed partial class WorkspaceSetupWindow : Window
 
     public bool CreateDesktopShortcut => CreateDesktopShortcutCheckBox.IsChecked == true;
 
-    public string SelectedLanguageCode { get; private set; } = "en-US";
+    public string SelectedLanguageCode { get; private set; } = "zh-CN";
 
     private bool IsEnglish => SelectedLanguageCode == "en-US";
 

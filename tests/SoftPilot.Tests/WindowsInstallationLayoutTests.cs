@@ -17,6 +17,8 @@ public sealed class WindowsInstallationLayoutTests
         Assert.AreEqual(Path.Combine(layout.ManagementDirectory, "tools"), layout.ToolsDirectory);
         Assert.AreEqual(Path.Combine(layout.ToolsDirectory, "shims"), layout.ShimsDirectory);
         Assert.IsTrue(Directory.Exists(layout.AppDirectory));
+        Assert.AreEqual(Path.Combine(layout.AppDirectory, "git"), layout.GitDirectory);
+        Assert.AreEqual(Path.Combine(layout.AppDirectory, "cocos"), layout.CocosDirectory);
         Assert.IsTrue(File.Exists(Path.Combine(layout.ManagementDirectory, ".softpilot-root")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "node")));
         Assert.IsFalse(Directory.Exists(Path.Combine(layout.AppDirectory, "java")));
@@ -26,6 +28,9 @@ public sealed class WindowsInstallationLayoutTests
         Assert.AreEqual(
             Path.Combine(layout.DataDirectory, "redis", "8.2.9"),
             layout.GetRedisDataDirectory("8.2.9"));
+        Assert.AreEqual(
+            Path.Combine(layout.DataDirectory, "redis", "service-state.json"),
+            layout.GetRedisServiceStatePath());
         Assert.AreEqual(
             Path.Combine(layout.DataDirectory, "mysql", "5.7", "data"),
             layout.GetMySqlDataDirectory("5.7.44"));

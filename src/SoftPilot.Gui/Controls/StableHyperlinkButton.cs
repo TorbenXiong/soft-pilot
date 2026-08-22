@@ -1,43 +1,58 @@
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 
 namespace SoftPilot.Gui.Controls;
 
 public sealed class StableHyperlinkButton : HyperlinkButton
 {
-    public StableHyperlinkButton()
+    private InputCursor? _handCursor;
+
+    protected override void OnPointerEntered(PointerRoutedEventArgs e)
     {
-        ProtectedCursor = StableCursorResources.Hand;
+        base.OnPointerEntered(e);
+        ProtectedCursor = _handCursor ??=
+            InputSystemCursor.Create(InputSystemCursorShape.Hand);
     }
 }
 
 public sealed class StableCursorButton : Button
 {
-    public StableCursorButton()
+    private InputCursor? _handCursor;
+
+    protected override void OnPointerEntered(PointerRoutedEventArgs e)
     {
-        ProtectedCursor = StableCursorResources.Hand;
+        base.OnPointerEntered(e);
+        ProtectedCursor = _handCursor ??=
+            InputSystemCursor.Create(InputSystemCursorShape.Hand);
     }
 }
 
 public sealed class StableCursorToggleButton : ToggleButton
 {
-    public StableCursorToggleButton()
+    private InputCursor? _handCursor;
+
+    protected override void OnPointerEntered(PointerRoutedEventArgs e)
     {
-        ProtectedCursor = StableCursorResources.Hand;
+        base.OnPointerEntered(e);
+        ProtectedCursor = _handCursor ??=
+            InputSystemCursor.Create(InputSystemCursorShape.Hand);
     }
 }
 
 public sealed class StableCursorContentPresenter : ContentPresenter
 {
+    private InputCursor? _handCursor;
+
     public StableCursorContentPresenter()
     {
-        ProtectedCursor = StableCursorResources.Hand;
+        PointerEntered += OnPointerEntered;
     }
-}
 
-internal static class StableCursorResources
-{
-    internal static InputCursor Hand { get; } =
-        InputSystemCursor.Create(InputSystemCursorShape.Hand);
+    private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        ProtectedCursor = _handCursor ??=
+            InputSystemCursor.Create(InputSystemCursorShape.Hand);
+    }
 }

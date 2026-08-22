@@ -93,8 +93,20 @@ public sealed class GitServiceTests
     }
 
     [TestMethod]
+    [DataRow("PortableGit-2.55.0.4-64-bit.7z.exe", true)]
+    [DataRow("PortableGit-2.55.0.4-32-bit.7z.exe", false)]
+    [DataRow("Git-2.55.0.4-64-bit.exe", false)]
+    public void IsManagedArchiveCacheName_AcceptsOnlyPortableX64Archives(
+        string fileName,
+        bool expected)
+    {
+        Assert.AreEqual(expected, GitService.IsManagedArchiveCacheName(fileName));
+    }
+
+    [TestMethod]
     [DataRow(RuntimeKind.Java, "21.0.12+8.0.LTS", "21.0.12")]
     [DataRow(RuntimeKind.Java, "17.0.20+8", "17.0.20")]
+    [DataRow(RuntimeKind.Java, "25.0.4+101.0.LTS", "25.0.4.1")]
     [DataRow(RuntimeKind.Node, "24.19.0", "24.19.0")]
     public void VersionDisplayFormatter_UsesConciseJavaBuild(RuntimeKind kind, string version, string expected)
     {

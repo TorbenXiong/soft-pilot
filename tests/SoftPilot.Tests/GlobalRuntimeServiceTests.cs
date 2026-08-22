@@ -174,6 +174,7 @@ public sealed class GlobalRuntimeServiceTests
         await context.Service.ClearAsync(RuntimeKind.Node);
 
         Assert.AreEqual(0, context.Shell.DisableCalls);
+        Assert.AreEqual(1, context.Shell.EnableCalls);
         Assert.IsTrue(context.Shell.IsEnabled);
     }
 

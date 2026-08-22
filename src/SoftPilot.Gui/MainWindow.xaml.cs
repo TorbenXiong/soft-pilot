@@ -109,6 +109,7 @@ public sealed partial class MainWindow : Window
         _currentTag = tag;
         RuntimesView.Visibility = isRuntime ? Visibility.Visible : Visibility.Collapsed;
         GitBashView.Visibility = tag == "git" ? Visibility.Visible : Visibility.Collapsed;
+        CocosView.Visibility = tag == "cocos" ? Visibility.Visible : Visibility.Collapsed;
         ToolboxView.Visibility = tag == "toolbox" ? Visibility.Visible : Visibility.Collapsed;
         TasksView.Visibility = tag == "tasks" ? Visibility.Visible : Visibility.Collapsed;
         SettingsView.Visibility = tag == "settings" ? Visibility.Visible : Visibility.Collapsed;
@@ -175,7 +176,10 @@ public sealed partial class MainWindow : Window
     {
         if ((sender as FrameworkElement)?.DataContext is RuntimeVersionRow row)
         {
-            var confirmation = await ConfirmUninstallAsync(row.RuntimeKind, row.Version);
+            var confirmation = await ConfirmUninstallAsync(
+                row.RuntimeKind,
+                row.Version,
+                row.IsCurrent);
             if (confirmation.Confirmed)
             {
                 await ViewModel.UninstallVersionAsync(row, confirmation.DeleteData);
@@ -187,7 +191,10 @@ public sealed partial class MainWindow : Window
     {
         if ((sender as FrameworkElement)?.DataContext is InstalledRuntimeRow row)
         {
-            var confirmation = await ConfirmUninstallAsync(row.RuntimeKind, row.Version);
+            var confirmation = await ConfirmUninstallAsync(
+                row.RuntimeKind,
+                row.Version,
+                row.IsCurrent);
             if (confirmation.Confirmed)
             {
                 await ViewModel.UninstallInstalledRuntimeAsync(row, confirmation.DeleteData);
@@ -347,8 +354,8 @@ public sealed partial class MainWindow : Window
                 XamlRoot = RootNavigation.XamlRoot,
                 Title = ViewModel.IsEnglish ? "Uninstall Git?" : "确认卸载 Git？",
                 Content = ViewModel.IsEnglish
-                    ? "The portable Git copy managed by SoftPilot will be permanently removed."
-                    : "将永久删除 SoftPilot 管理的 Git 便携副本。",
+                    ? "The portable Git copy and its installer cache will be permanently removed. Global Git configuration, SSH keys, credentials, and repositories will be preserved."
+                    : "将永久删除 SoftPilot 管理的 Git 便携副本及其安装包缓存；保留全局 Git 配置、SSH 密钥、凭据和仓库。",
                 PrimaryButtonText = ViewModel.IsEnglish ? "Uninstall" : "卸载",
                 CloseButtonText = ViewModel.IsEnglish ? "Cancel" : "取消",
                 DefaultButton = ContentDialogButton.Close,
@@ -445,6 +452,255 @@ public sealed partial class MainWindow : Window
 
     private async void OnSaveGitConfigurationClick(object sender, RoutedEventArgs e) =>
         await ViewModel.SaveGitConfigurationAsync();
+
+    private async void OnInstallOrUpgradeCocosClick(object sender, RoutedEventArgs e) =>
+        await ViewModel.InstallOrUpgradeCocosAsync();
+
+    private async void OnUninstallCocosClick(object sender, RoutedEventArgs e)
+    {
+        if (RootNavigation.XamlRoot is null)
+        {
+            return;
+        }
+
+        await _dialogGate.WaitAsync();
+        try
+        {
+            var deleteDataCheckBox = new CheckBox
+            {
+                Content = ViewModel.IsEnglish
+                    ? "Also delete Dashboard account and settings data (%USERPROFILE%\\.Cocos). Creator editors and projects will be preserved."
+                    : "同时删除 Dashboard 账号与设置数据（%USERPROFILE%\\.Cocos）；保留 Creator 编辑器和项目。",
+                IsChecked = false,
+            };
+            var content = new StackPanel { Spacing = 12 };
+            content.Children.Add(new TextBlock
+            {
+                Text = ViewModel.IsEnglish
+                    ? "The managed Cocos Dashboard directory and its installer cache will be permanently removed."
+                    : "将永久删除 SoftPilot 受管的 Cocos Dashboard 目录及其安装包缓存。",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            content.Children.Add(deleteDataCheckBox);
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootNavigation.XamlRoot,
+                Title = ViewModel.IsEnglish ? "Uninstall Cocos Dashboard?" : "确认卸载 Cocos Dashboard？",
+                Content = content,
+                PrimaryButtonText = ViewModel.IsEnglish ? "Uninstall" : "卸载",
+                CloseButtonText = ViewModel.IsEnglish ? "Cancel" : "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            {
+                await ViewModel.UninstallCocosAsync(deleteDataCheckBox.IsChecked == true);
+            }
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
+    }
+
+    private void OnLaunchCocosClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!ViewModel.CanLaunchCocos)
+            {
+                return;
+            }
+
+            if (!File.Exists(ViewModel.CocosLauncherPath))
+            {
+                throw new FileNotFoundException(
+                    "CocosDashboard.exe was not found.",
+                    ViewModel.CocosLauncherPath);
+            }
+
+            Process.Start(new ProcessStartInfo(ViewModel.CocosLauncherPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = ViewModel.CocosInstallPath,
+            });
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to launch Cocos Dashboard" : "无法启动 Cocos Dashboard",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private async void OnOpenCocosFolderClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!Directory.Exists(ViewModel.CocosInstallPath))
+            {
+                throw new DirectoryNotFoundException(ViewModel.CocosInstallPath);
+            }
+
+            var folder = await StorageFolder.GetFolderFromPathAsync(ViewModel.CocosInstallPath);
+            if (!await Launcher.LaunchFolderAsync(folder))
+            {
+                throw new InvalidOperationException("Windows could not open the folder.");
+            }
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open folder" : "无法打开目录",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private void OnCopyCocosPathClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement target)
+        {
+            return;
+        }
+
+        CopyTextWithFeedback(
+            target,
+            ViewModel.CocosInstallPath,
+            ViewModel.IsEnglish ? "Copied" : "已复制",
+            ViewModel.IsEnglish ? "Unable to copy path" : "无法复制路径");
+    }
+
+    private async void OnOpenCocosReleaseClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string address }
+            || !Uri.TryCreate(address, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(uri.Host, "www.cocos.com", StringComparison.OrdinalIgnoreCase)
+            || !(string.Equals(uri.AbsolutePath, "/creator-download", StringComparison.Ordinal)
+                 || string.Equals(uri.AbsolutePath, "/en/creator-download", StringComparison.Ordinal)))
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open link" : "无法打开链接",
+                ViewModel.IsEnglish
+                    ? "The official Cocos download URL is unavailable or invalid."
+                    : "Cocos 官方下载地址不可用或无效。",
+                IsError: true));
+            return;
+        }
+
+        if (!await Launcher.LaunchUriAsync(uri))
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open link" : "无法打开链接",
+                ViewModel.IsEnglish
+                    ? "Windows could not open the official Cocos download page."
+                    : "Windows 未能打开 Cocos 官方下载页。",
+                IsError: true));
+        }
+    }
+
+    private async void OnInstallCocosCreatorClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is CocosCreatorVersionRow row)
+        {
+            await ViewModel.InstallCocosCreatorAsync(row);
+        }
+    }
+
+    private void OnLaunchCocosCreatorClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not CocosCreatorVersionRow row
+            || !row.CanLaunch)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!File.Exists(row.LauncherPath))
+            {
+                throw new FileNotFoundException("CocosCreator.exe was not found.", row.LauncherPath);
+            }
+
+            Process.Start(new ProcessStartInfo(row.LauncherPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = row.InstallDirectory,
+            });
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to launch Cocos Creator" : "无法启动 Cocos Creator",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private async void OnOpenCocosCreatorFolderClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not CocosCreatorVersionRow row)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!Directory.Exists(row.InstallDirectory))
+            {
+                throw new DirectoryNotFoundException(row.InstallDirectory);
+            }
+
+            var folder = await StorageFolder.GetFolderFromPathAsync(row.InstallDirectory);
+            if (!await Launcher.LaunchFolderAsync(folder))
+            {
+                throw new InvalidOperationException("Windows could not open the folder.");
+            }
+        }
+        catch (Exception exception)
+        {
+            OnNotificationRequested(new UserNotification(
+                ViewModel.IsEnglish ? "Unable to open folder" : "无法打开目录",
+                exception.Message,
+                IsError: true));
+        }
+    }
+
+    private async void OnUninstallCocosCreatorClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not CocosCreatorVersionRow row
+            || RootNavigation.XamlRoot is null)
+        {
+            return;
+        }
+
+        await _dialogGate.WaitAsync();
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = RootNavigation.XamlRoot,
+                Title = ViewModel.IsEnglish
+                    ? $"Uninstall Cocos Creator {row.Version}?"
+                    : $"确认卸载 Cocos Creator {row.Version}？",
+                Content = ViewModel.IsEnglish
+                    ? "The selected managed editor and its download cache will be permanently removed. Shared .CocosCreator settings, extensions, and every project directory will be preserved."
+                    : "将永久删除所选受管编辑器及其下载缓存；共享的 .CocosCreator 设置、扩展和所有项目目录均会保留。",
+                PrimaryButtonText = ViewModel.IsEnglish ? "Uninstall" : "卸载",
+                CloseButtonText = ViewModel.IsEnglish ? "Cancel" : "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            {
+                await ViewModel.UninstallCocosCreatorAsync(row);
+            }
+        }
+        finally
+        {
+            _dialogGate.Release();
+        }
+    }
 
     private async void OnJsonBeautifyClick(object sender, RoutedEventArgs e)
     {
@@ -1830,7 +2086,8 @@ public sealed partial class MainWindow : Window
 
     private async Task<(bool Confirmed, bool DeleteData)> ConfirmUninstallAsync(
         RuntimeKind kind,
-        string version)
+        string version,
+        bool isCurrent)
     {
         if (RootNavigation.XamlRoot is null)
         {
@@ -1841,9 +2098,13 @@ public sealed partial class MainWindow : Window
         try
         {
             CheckBox? deleteDataCheckBox = null;
-            object content = ViewModel.IsEnglish
-                ? $"{GetRuntimeName(kind)}@{version} will be permanently removed."
-                : $"将永久卸载 {GetRuntimeName(kind)}@{version}。";
+            object content = isCurrent
+                ? ViewModel.IsEnglish
+                    ? $"{GetRuntimeName(kind)}@{version} is the terminal default. SoftPilot will clear that selection first, then permanently remove this version."
+                    : $"{GetRuntimeName(kind)}@{version} 是终端默认版本。SoftPilot 将先取消该选择，再永久卸载此版本。"
+                : ViewModel.IsEnglish
+                    ? $"{GetRuntimeName(kind)}@{version} will be permanently removed."
+                    : $"将永久卸载 {GetRuntimeName(kind)}@{version}。";
             if (kind is RuntimeKind.Redis or RuntimeKind.MySql)
             {
                 deleteDataCheckBox = new CheckBox
@@ -1896,6 +2157,7 @@ public sealed partial class MainWindow : Window
                 ModuleKind.Redis => RedisNavigationItem,
                 ModuleKind.MySql => MySqlNavigationItem,
                 ModuleKind.Git => GitBashNavigationItem,
+                ModuleKind.Cocos => CocosNavigationItem,
                 ModuleKind.Toolbox => ToolboxNavigationItem,
                 _ => throw new ArgumentOutOfRangeException(nameof(kind)),
             });
@@ -1913,6 +2175,7 @@ public sealed partial class MainWindow : Window
             "settings" => ViewModel.SettingsText,
             "toolbox" => ViewModel.ToolboxText,
             "git" => "Git",
+            "cocos" => "Cocos",
             "runtime:java" => "Java",
             "runtime:python" => "Python",
             "runtime:redis" => "Redis",
@@ -1938,6 +2201,7 @@ public sealed partial class MainWindow : Window
                 ModuleKind.Redis => RedisNavigationItem,
                 ModuleKind.MySql => MySqlNavigationItem,
                 ModuleKind.Git => GitBashNavigationItem,
+                ModuleKind.Cocos => CocosNavigationItem,
                 ModuleKind.Toolbox => ToolboxNavigationItem,
                 _ => SettingsNavigationItem,
             };

@@ -48,6 +48,17 @@ public static class DependencyInjection
         services.AddSingleton<ICacheService, CacheService>();
         services.AddSingleton<IDoctorService, DoctorService>();
         services.AddSingleton<IGitService, GitService>();
+        services.AddSingleton<ICocosDashboardService, CocosDashboardService>();
+        services.AddSingleton<ICocosCreatorService>(provider =>
+        {
+            var client = provider.GetRequiredService<HttpClient>();
+            return new CocosCreatorService(
+                client,
+                new HttpDownloadService(client, CocosCreatorService.IsTrustedFinalDownloadAddress),
+                provider.GetRequiredService<IInstallationLayout>(),
+                provider.GetRequiredService<IStateStore>(),
+                new WindowsCocosCreatorSystem(provider.GetRequiredService<ProcessRunner>()));
+        });
         services.AddSingleton<IEnvironmentVariableService, WindowsEnvironmentVariableService>();
         services.AddSingleton<IHostsFileService, WindowsHostsFileService>();
 

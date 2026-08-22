@@ -11,10 +11,14 @@ public sealed class HttpDownloadService : IDownloadService
     private const int ProbeBytes = 64 * 1024;
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(4);
     private readonly HttpClient _client;
+    private readonly Func<Uri, Uri, bool>? _finalAddressValidator;
 
-    public HttpDownloadService(HttpClient client)
+    public HttpDownloadService(
+        HttpClient client,
+        Func<Uri, Uri, bool>? finalAddressValidator = null)
     {
         _client = client;
+        _finalAddressValidator = finalAddressValidator;
         _client.DefaultRequestHeaders.UserAgent.ParseAdd("SoftPilot/1.0 (+https://github.com/TorbenXiong/soft-pilot)");
         _client.Timeout = Timeout.InfiniteTimeSpan;
     }
@@ -132,6 +136,13 @@ public sealed class HttpDownloadService : IDownloadService
             {
                 throw new IntegrityException(
                     $"下载地址重定向到了非 HTTPS 地址：{finalAddress.GetLeftPart(UriPartial.Path)}");
+            }
+
+            if (_finalAddressValidator is not null
+                && !_finalAddressValidator(source, finalAddress))
+            {
+                throw new IntegrityException(
+                    $"下载地址重定向到了不受信任的主机：{finalAddress.GetLeftPart(UriPartial.Path)}");
             }
 
             if (response.StatusCode is HttpStatusCode.Moved or HttpStatusCode.Redirect or HttpStatusCode.RedirectMethod or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)

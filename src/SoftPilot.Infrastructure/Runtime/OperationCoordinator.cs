@@ -41,7 +41,22 @@ public sealed class OperationCoordinator : IOperationCoordinator
         bool makeCurrent,
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default) =>
-        TrackAsync("install", target, cancellationToken, async operationToken =>
+        InstallOrUpgradeAsync("install", target, makeCurrent, progress, cancellationToken);
+
+    public Task UpgradeAsync(
+        RuntimeTarget target,
+        bool makeCurrent,
+        IProgress<OperationProgress>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        InstallOrUpgradeAsync("upgrade", target, makeCurrent, progress, cancellationToken);
+
+    private Task InstallOrUpgradeAsync(
+        string operationName,
+        RuntimeTarget target,
+        bool makeCurrent,
+        IProgress<OperationProgress>? progress,
+        CancellationToken cancellationToken) =>
+        TrackAsync(operationName, target, cancellationToken, async operationToken =>
         {
             progress?.Report(new OperationProgress("prepare", 0, "正在准备安装"));
             ValidateVersion(target.Version);
@@ -76,7 +91,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     throw new SoftPilotException($"运行时健康检查失败：{health.Error}");
                 }
 
-                if (!RuntimeVersionMatcher.AreEquivalent(release.Version, health.DetectedVersion))
+                if (!RuntimeVersionMatcher.AreEquivalent(target.Kind, release.Version, health.DetectedVersion))
                 {
                     throw new IntegrityException($"请求版本 {release.Version} 与实际版本 {health.DetectedVersion} 不一致。");
                 }
@@ -164,10 +179,12 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 throw new SoftPilotException("当前全局版本不能卸载；请先切换版本或取消当前选择。");
             }
 
+            RedisServiceStatus? redisStatus = null;
             if (target.Kind == RuntimeKind.Redis && _redisServices is not null)
             {
-                var service = await _redisServices.GetStatusAsync(operationToken);
-                if (service.IsRunning && string.Equals(service.Version, target.Version, StringComparison.Ordinal))
+                redisStatus = await _redisServices.GetStatusAsync(operationToken);
+                if (redisStatus.IsRunning
+                    && string.Equals(redisStatus.Version, target.Version, StringComparison.Ordinal))
                 {
                     throw new SoftPilotException("正在运行的 Redis 版本不能卸载；请先停止 Redis 服务。");
                 }
@@ -181,10 +198,40 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 }
             }
 
+            var remainingInstallations = (await _stateStore.GetInstallationsAsync(cancellationToken: operationToken))
+                .Where(item => item.Kind == target.Kind
+                               && !string.Equals(item.Version, target.Version, StringComparison.Ordinal))
+                .ToArray();
+            var isLastVersionOfKind = remainingInstallations.Length == 0;
+            var artifactPaths = await FindRuntimeArtifactPathsAsync(
+                target,
+                isLastVersionOfKind,
+                operationToken);
+            var removalPaths = new List<string> { installation.InstallPath };
+            if (options.DeleteData)
+            {
+                removalPaths.Add(target.Kind == RuntimeKind.Redis
+                    ? _layout.GetRedisDataDirectory(target.Version)
+                    : Path.GetDirectoryName(_layout.GetMySqlDataDirectory(target.Version))!);
+                removalPaths.Add(Path.GetDirectoryName(target.Kind == RuntimeKind.Redis
+                    ? _layout.GetRedisLogPath(target.Version)
+                    : _layout.GetMySqlLogPath(target.Version))!);
+            }
+
+            if (target.Kind == RuntimeKind.Redis
+                && redisStatus is { IsRunning: false, Version: not null }
+                && string.Equals(redisStatus.Version, target.Version, StringComparison.Ordinal))
+            {
+                removalPaths.Add(_layout.GetRedisServiceStatePath());
+            }
+
+            removalPaths.AddRange(artifactPaths);
+            WindowsRemovalSafety.EnsurePathsAreDeletable(removalPaths, operationToken);
             var removalDirectory = Path.Combine(
                 _layout.StagingDirectory,
                 $"uninstall-{target.Kind.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}");
             var movedDirectories = new List<(string Original, string Staged)>();
+            var movedFiles = new List<(string Original, string Staged)>();
             Directory.CreateDirectory(_layout.StagingDirectory);
             try
             {
@@ -205,8 +252,49 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     MoveForRemoval(logDirectory, Path.Combine(removalDirectory, "logs"), movedDirectories);
                 }
 
+                if (target.Kind == RuntimeKind.Redis
+                    && redisStatus is { IsRunning: false, Version: not null }
+                    && string.Equals(redisStatus.Version, target.Version, StringComparison.Ordinal))
+                {
+                    MoveFileForRemoval(
+                        _layout.GetRedisServiceStatePath(),
+                        Path.Combine(removalDirectory, "service-state.json"),
+                        movedFiles);
+                }
+
+                var artifactIndex = 0;
+                if (artifactPaths.Count > 0)
+                {
+                    Directory.CreateDirectory(Path.Combine(removalDirectory, "artifacts"));
+                }
+
+                foreach (var artifactPath in artifactPaths)
+                {
+                    var stagedName = $"{artifactIndex++:D3}-{Path.GetFileName(artifactPath)}";
+                    if (Directory.Exists(artifactPath))
+                    {
+                        MoveForRemoval(
+                            artifactPath,
+                            Path.Combine(removalDirectory, "artifacts", stagedName),
+                            movedDirectories);
+                    }
+                    else
+                    {
+                        MoveFileForRemoval(
+                            artifactPath,
+                            Path.Combine(removalDirectory, "artifacts", stagedName),
+                            movedFiles);
+                    }
+                }
+
                 await _stateStore.DeleteInstallationAsync(target.Kind, target.Version, operationToken);
                 await DeleteDirectoryWithRetryAsync(removalDirectory, CancellationToken.None);
+                TryDeleteEmptyRuntimeKindDirectory(installation.InstallPath);
+                TryDeleteEmptyDirectory(Path.Combine(_layout.DownloadsDirectory, "python"));
+                TryDeleteEmptyDirectory(Path.Combine(_layout.LogsDirectory, "python"));
+                TryDeleteEmptyDirectory(Path.Combine(
+                    Path.GetDirectoryName(_layout.DownloadsDirectory)!,
+                    "catalog"));
                 if (options.DeleteData)
                 {
                     var dataDirectory = target.Kind == RuntimeKind.Redis
@@ -222,6 +310,7 @@ public sealed class OperationCoordinator : IOperationCoordinator
             catch (Exception operationException)
             {
                 var rollbackFailures = RestoreMovedDirectories(movedDirectories).ToList();
+                rollbackFailures.AddRange(RestoreMovedFiles(movedFiles));
 
                 if (await _stateStore.FindInstallationAsync(
                         target.Kind,
@@ -239,6 +328,12 @@ public sealed class OperationCoordinator : IOperationCoordinator
                     }
                 }
 
+                if (rollbackFailures.Count == 0)
+                {
+                    TryDeleteEmptyDirectory(Path.Combine(removalDirectory, "artifacts"));
+                    TryDeleteEmptyDirectory(removalDirectory);
+                }
+
                 if (rollbackFailures.Count > 0)
                 {
                     throw new SoftPilotException(
@@ -249,6 +344,105 @@ public sealed class OperationCoordinator : IOperationCoordinator
                 throw;
             }
         });
+
+    private async Task<IReadOnlyList<string>> FindRuntimeArtifactPathsAsync(
+        RuntimeTarget target,
+        bool isLastVersionOfKind,
+        CancellationToken cancellationToken)
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_providers.TryGetValue(target.Kind, out var provider)
+            && provider is ICachedRuntimeProvider cachedProvider)
+        {
+            var catalog = await cachedProvider.GetCachedCatalogAsync(cancellationToken);
+            var release = catalog?.Releases.FirstOrDefault(item =>
+                string.Equals(item.Version, target.Version, StringComparison.Ordinal));
+            if (release is not null)
+            {
+                var archivePath = Path.Combine(
+                    _layout.DownloadsDirectory,
+                    Path.GetFileName(release.DownloadUri.LocalPath));
+                paths.Add(archivePath);
+                if (target.Kind is RuntimeKind.Java or RuntimeKind.MySql)
+                {
+                    paths.Add(archivePath + (target.Kind == RuntimeKind.Java ? ".sig" : ".asc"));
+                }
+            }
+        }
+
+        if (target.Kind == RuntimeKind.Node)
+        {
+            var checksumPath = Path.Combine(
+                _layout.DownloadsDirectory,
+                $"node-{target.Version}-SHASUMS256.txt");
+            paths.Add(checksumPath);
+            paths.Add(checksumPath + ".sig");
+            paths.Add(Path.Combine(
+                _layout.DownloadsDirectory,
+                $"node-v{target.Version}-win-x64.zip"));
+        }
+
+        if (Directory.Exists(_layout.DownloadsDirectory))
+        {
+            foreach (var path in Directory.EnumerateFiles(
+                         _layout.DownloadsDirectory,
+                         "*",
+                         SearchOption.TopDirectoryOnly))
+            {
+                if (IsLegacyRuntimeArtifact(target, Path.GetFileName(path)))
+                {
+                    paths.Add(path);
+                }
+            }
+        }
+
+        if (target.Kind == RuntimeKind.Python)
+        {
+            paths.Add(Path.Combine(_layout.DownloadsDirectory, "python", target.Version));
+            paths.Add(Path.Combine(_layout.LogsDirectory, "python", target.Version));
+            if (isLastVersionOfKind)
+            {
+                paths.Add(Path.Combine(_layout.DownloadsDirectory, "python"));
+                paths.Add(Path.Combine(_layout.DownloadsDirectory, "python-manager"));
+                paths.Add(Path.Combine(_layout.DataDirectory, "python-manager-provision.lock"));
+            }
+        }
+
+        if (target.Kind == RuntimeKind.MySql && isLastVersionOfKind)
+        {
+            paths.Add(Path.Combine(_layout.DownloadsDirectory, "vc_redist.x64.exe"));
+        }
+
+        if (isLastVersionOfKind)
+        {
+            paths.Add(Path.Combine(
+                Path.GetDirectoryName(_layout.DownloadsDirectory)!,
+                "catalog",
+                $"{target.Kind.ToString().ToLowerInvariant()}.json"));
+        }
+
+        return paths
+            .Where(path => File.Exists(path) || Directory.Exists(path))
+            .OrderByDescending(path => path.Length)
+            .ToArray();
+    }
+
+    private static bool IsLegacyRuntimeArtifact(RuntimeTarget target, string fileName)
+    {
+        if (!fileName.Contains(target.Version, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return target.Kind switch
+        {
+            RuntimeKind.Node => fileName.StartsWith("node-", StringComparison.OrdinalIgnoreCase),
+            RuntimeKind.Java => fileName.StartsWith("OpenJDK", StringComparison.OrdinalIgnoreCase),
+            RuntimeKind.Redis => fileName.StartsWith("Redis", StringComparison.OrdinalIgnoreCase),
+            RuntimeKind.MySql => fileName.StartsWith("mysql-", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
 
     private static void MoveForRemoval(
         string original,
@@ -262,6 +456,20 @@ public sealed class OperationCoordinator : IOperationCoordinator
 
         Directory.Move(original, staged);
         movedDirectories.Add((original, staged));
+    }
+
+    private static void MoveFileForRemoval(
+        string original,
+        string staged,
+        ICollection<(string Original, string Staged)> movedFiles)
+    {
+        if (!File.Exists(original))
+        {
+            return;
+        }
+
+        File.Move(original, staged);
+        movedFiles.Add((original, staged));
     }
 
     private static IReadOnlyList<Exception> RestoreMovedDirectories(
@@ -286,6 +494,38 @@ public sealed class OperationCoordinator : IOperationCoordinator
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(original)!);
                 Directory.Move(staged, original);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        return failures;
+    }
+
+    private static IReadOnlyList<Exception> RestoreMovedFiles(
+        IReadOnlyList<(string Original, string Staged)> movedFiles)
+    {
+        var failures = new List<Exception>();
+        for (var index = movedFiles.Count - 1; index >= 0; index--)
+        {
+            var (original, staged) = movedFiles[index];
+            if (File.Exists(original))
+            {
+                continue;
+            }
+
+            if (!File.Exists(staged))
+            {
+                failures.Add(new FileNotFoundException("无法恢复文件，暂存内容不存在。", staged));
+                continue;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(original)!);
+                File.Move(staged, original);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -441,4 +681,5 @@ public sealed class OperationCoordinator : IOperationCoordinator
             throw;
         }
     }
+
 }

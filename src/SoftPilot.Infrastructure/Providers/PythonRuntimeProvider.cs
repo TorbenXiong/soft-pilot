@@ -232,7 +232,7 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
         }
         else
         {
-            var configPath = await CreateManagerConfigAsync(_layout, cancellationToken);
+            var configPath = await CreateManagerConfigAsync(_layout, release.Version, cancellationToken);
             try
             {
                 await using (var manager = await _managerProvisioner.AcquireAsync(progress, cancellationToken))
@@ -280,20 +280,23 @@ public sealed class PythonRuntimeProvider : IRuntimeProvider
 
     private static async Task<string> CreateManagerConfigAsync(
         IInstallationLayout layout,
+        string version,
         CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(layout.StagingDirectory);
         Directory.CreateDirectory(layout.DownloadsDirectory);
         Directory.CreateDirectory(layout.LogsDirectory);
-        var pythonDownloads = Path.Combine(layout.DownloadsDirectory, "python");
+        var pythonDownloads = Path.Combine(layout.DownloadsDirectory, "python", version);
+        var pythonLogs = Path.Combine(layout.LogsDirectory, "python", version);
         Directory.CreateDirectory(pythonDownloads);
+        Directory.CreateDirectory(pythonLogs);
         var path = Path.Combine(layout.StagingDirectory, $"python-manager-{Guid.NewGuid():N}.json");
         var config = new Dictionary<string, object?>
         {
             ["automatic_install"] = false,
             ["confirm"] = false,
             ["download_dir"] = pythonDownloads,
-            ["logs_dir"] = layout.LogsDirectory,
+            ["logs_dir"] = pythonLogs,
         };
         await using var stream = new FileStream(
             path,

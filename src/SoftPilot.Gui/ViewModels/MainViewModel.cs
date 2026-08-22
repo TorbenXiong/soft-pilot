@@ -21,6 +21,8 @@ public partial class MainViewModel : ObservableObject
     private readonly IRedisServiceManager _redisServices;
     private readonly IMySqlServiceManager _mySqlServices;
     private readonly IGitService _gitBash;
+    private readonly ICocosDashboardService _cocosDashboard;
+    private readonly ICocosCreatorService _cocosCreator;
     private readonly IJsonFormatterHistoryStore _jsonHistoryStore;
     private readonly IEnvironmentVariableService _environmentVariables;
     private readonly IHostsFileService _hostsFile;
@@ -45,6 +47,14 @@ public partial class MainViewModel : ObservableObject
     private string? _gitBashRemoteProblem;
     private string? _gitBashOperationProblem;
     private string? _gitBashConfigurationProblem;
+    private CocosDashboardRelease? _latestCocosRelease;
+    private IReadOnlyList<CocosCreatorRelease> _cocosCreatorReleases = [];
+    private IReadOnlyList<CocosCreatorInstallationStatus> _cocosCreatorInstallations = [];
+    private string? _cocosLocalProblem;
+    private string? _cocosRemoteProblem;
+    private string? _cocosOperationProblem;
+    private string? _cocosCreatorLocalProblem;
+    private string? _cocosCreatorCatalogProblem;
 
     public MainViewModel(
         IEnumerable<IExternalRuntimeDetector> detectors,
@@ -56,6 +66,8 @@ public partial class MainViewModel : ObservableObject
         IRedisServiceManager redisServices,
         IMySqlServiceManager mySqlServices,
         IGitService gitBash,
+        ICocosDashboardService cocosDashboard,
+        ICocosCreatorService cocosCreator,
         IJsonFormatterHistoryStore jsonHistoryStore,
         IEnvironmentVariableService environmentVariables,
         IHostsFileService hostsFile)
@@ -69,6 +81,8 @@ public partial class MainViewModel : ObservableObject
         _redisServices = redisServices;
         _mySqlServices = mySqlServices;
         _gitBash = gitBash;
+        _cocosDashboard = cocosDashboard;
+        _cocosCreator = cocosCreator;
         _jsonHistoryStore = jsonHistoryStore;
         _environmentVariables = environmentVariables;
         _hostsFile = hostsFile;
@@ -78,8 +92,8 @@ public partial class MainViewModel : ObservableObject
         UninstallSelectedCommand = new AsyncRelayCommand(UninstallSelectedAsync, CanUninstallSelected);
         LanguageOptions =
         [
-            new LanguageOption("en-US", "English"),
             new LanguageOption("zh-CN", "简体中文"),
+            new LanguageOption("en-US", "English"),
         ];
         SelectedLanguage = LanguageOptions[0];
         ReplaceModuleSettings(RuntimeModulePreferences.Default);
@@ -93,6 +107,7 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<TaskRow> Tasks { get; } = [];
     public ObservableCollection<RuntimeModuleSetting> ModuleSettings { get; } = [];
     public ObservableCollection<GitEnvironmentCheckRow> GitEnvironmentChecks { get; } = [];
+    public ObservableCollection<CocosCreatorVersionRow> CocosCreatorVersions { get; } = [];
     public ObservableCollection<JsonFormatterHistoryRow> JsonFormatterHistory { get; } = [];
     public ObservableCollection<EnvironmentVariableRow> EnvironmentVariables { get; } = [];
     public IReadOnlyList<LanguageOption> LanguageOptions { get; }
@@ -126,6 +141,7 @@ public partial class MainViewModel : ObservableObject
     public bool RedisModuleEnabled => IsModuleEnabled(RuntimeKind.Redis);
     public bool MySqlModuleEnabled => IsModuleEnabled(RuntimeKind.MySql);
     public bool GitModuleEnabled => IsModuleEnabled(ModuleKind.Git);
+    public bool CocosModuleEnabled => IsModuleEnabled(ModuleKind.Cocos);
     public bool ToolboxModuleEnabled => IsModuleEnabled(ModuleKind.Toolbox);
 
     [ObservableProperty]
@@ -154,6 +170,36 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     public partial double GitBashOperationPercentage { get; private set; }
+
+    [ObservableProperty]
+    public partial bool IsCocosOperating { get; private set; }
+
+    [ObservableProperty]
+    public partial bool CocosIsInstalled { get; private set; }
+
+    [ObservableProperty]
+    public partial string CocosInstalledVersion { get; private set; } = "—";
+
+    [ObservableProperty]
+    public partial string CocosLatestVersion { get; private set; } = "—";
+
+    [ObservableProperty]
+    public partial string CocosInstallPath { get; private set; } = "—";
+
+    [ObservableProperty]
+    public partial string CocosLauncherPath { get; private set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string CocosProblemText { get; private set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string CocosOperationText { get; private set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial double CocosOperationPercentage { get; private set; }
+
+    [ObservableProperty]
+    public partial string CocosCreatorProblemText { get; private set; } = string.Empty;
 
     [ObservableProperty]
     public partial string GitUserName { get; set; } = string.Empty;
@@ -198,6 +244,7 @@ public partial class MainViewModel : ObservableObject
     public Visibility RedisModuleVisibility => RedisModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility MySqlModuleVisibility => MySqlModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility GitModuleVisibility => GitModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility CocosModuleVisibility => CocosModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ToolboxModuleVisibility => ToolboxModuleEnabled ? Visibility.Visible : Visibility.Collapsed;
     public GridLength ServiceColumnWidth => IsServiceRuntime(SelectedRuntimeKind)
         ? new GridLength(110)
@@ -271,7 +318,7 @@ public partial class MainViewModel : ObservableObject
     public string GitBashInstallPathLabel => T("安装路径", "Install path");
     public string GitBashInstallPath => _gitBash.InstallDirectory;
     public string GitBashLauncherPath => _gitBash.LauncherPath;
-    public string GitBashPrimaryActionText => GitBashIsInstalled ? T("升级", "Upgrade") : T("安装", "Install");
+    public string GitBashPrimaryActionText => T("安装", "Install");
     public string GitBashLaunchText => T("启动 Git Bash", "Launch Git Bash");
     public string GitBashLaunchAsAdministratorText => T("启动 Git Bash(管理员)", "Run Git Bash as administrator");
     public string GitBashUninstallText => T("卸载", "Uninstall");
@@ -289,6 +336,53 @@ public partial class MainViewModel : ObservableObject
     public string GitCheckItemHeader => T("组件", "Component");
     public string GitCheckStatusHeader => T("状态", "Status");
     public string GitCheckResultHeader => T("版本或结果", "Version or result");
+    public string CocosText => "Cocos";
+    public string CocosInstalledVersionLabel => T("已安装版本", "Installed version");
+    public string CocosLatestVersionLabel => T("官方最新版本", "Latest official version");
+    public string CocosInstallPathLabel => T("受管安装路径", "Managed install path");
+    public string CocosPrimaryActionText => T("安装", "Install");
+    public string CocosLaunchText => T("启动 Cocos Dashboard", "Launch Cocos Dashboard");
+    public string CocosUninstallText => T("卸载", "Uninstall");
+    public string CocosCopyPathToolTip => T("复制安装路径", "Copy installation path");
+    public string CocosDashboardTitle => "Cocos Dashboard";
+    public string CocosCreatorTitle => "Cocos Creator";
+    public string CocosCreatorVersionHeader => T("编辑器版本", "Editor version");
+    public string CocosCreatorStatusHeader => T("状态", "Status");
+    public string CocosCreatorEmptyText => T("暂无可用或已安装的 Creator 版本。", "No available or installed Creator versions.");
+    public string CocosReleasePageUrl => _latestCocosRelease?.ReleasePageUri.AbsoluteUri ?? string.Empty;
+    public string CocosDownloadUrl => _latestCocosRelease?.DownloadUri.AbsoluteUri ?? string.Empty;
+    public bool CocosUpdateAvailable => CocosIsInstalled
+        && _latestCocosRelease is not null
+        && !string.Equals(CocosInstalledVersion, _latestCocosRelease.Version, StringComparison.OrdinalIgnoreCase);
+    public Visibility CocosPrimaryActionVisibility => !CocosIsInstalled || CocosUpdateAvailable
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility CocosInstalledActionsVisibility => CocosIsInstalled
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility CocosOperationVisibility => string.IsNullOrWhiteSpace(CocosOperationText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public Visibility CocosProblemVisibility => string.IsNullOrWhiteSpace(CocosProblemText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+    public Visibility CocosProgressVisibility => IsCocosOperating ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility CocosReleasePageVisibility => _latestCocosRelease is not null
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public bool CanRunCocosAction => !IsBusy && !IsCocosOperating && _latestCocosRelease is not null;
+    public bool CanUseInstalledCocos => CocosIsInstalled
+        && !IsBusy
+        && !IsCocosOperating
+        && !string.IsNullOrWhiteSpace(CocosLauncherPath);
+    public bool CanLaunchCocos => CanUseInstalledCocos
+        && string.IsNullOrWhiteSpace(_cocosLocalProblem);
+    public Visibility CocosCreatorEmptyVisibility => CocosCreatorVersions.Count == 0
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+    public Visibility CocosCreatorProblemVisibility => string.IsNullOrWhiteSpace(CocosCreatorProblemText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
     public string GitBashReleasePageUrl => _latestGitBashRelease?.ReleasePageUri.AbsoluteUri ?? string.Empty;
     public string GitBashDownloadUrl => _latestGitBashRelease?.DownloadUri.AbsoluteUri ?? string.Empty;
     public bool GitBashUpdateAvailable => GitBashIsInstalled
@@ -377,6 +471,8 @@ public partial class MainViewModel : ObservableObject
         await RefreshRuntimeDataAsync(includeExternal: false);
         await RefreshServiceStatusesAsync();
         await RefreshGitBashLocalStatusAsync();
+        await RefreshCocosLocalStatusAsync();
+        await RefreshCocosCreatorLocalStatusAsync();
         await LoadCachedRecommendedVersionsAsync();
         await RefreshTasksAsync();
         _ = RefreshStartupDataAsync(preferencesWarning);
@@ -533,12 +629,18 @@ public partial class MainViewModel : ObservableObject
                 await RefreshRuntimeDataAsync(includeExternal: false);
                 await RefreshServiceStatusesAsync();
                 await RefreshGitBashLocalStatusAsync();
+                await RefreshCocosLocalStatusAsync();
+                await RefreshCocosCreatorLocalStatusAsync();
                 var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: true);
                 var gitBashWarning = await RefreshGitBashLatestAsync();
+                var cocosWarning = await RefreshCocosLatestAsync();
+                var creatorWarning = await RefreshCocosCreatorCatalogAsync();
                 await RefreshTasksAsync();
                 var warnings = remoteWarnings
                     .Prepend(preferencesWarning)
                     .Prepend(gitBashWarning)
+                    .Prepend(cocosWarning)
+                    .Prepend(creatorWarning)
                     .OfType<string>()
                     .ToArray();
                 if (warnings.Length > 0)
@@ -557,9 +659,13 @@ public partial class MainViewModel : ObservableObject
     {
         var remoteWarnings = await RefreshRemoteDataAsync(forceCatalogRefresh: false);
         var gitBashWarning = await RefreshGitBashLatestAsync();
+        var cocosWarning = await RefreshCocosLatestAsync();
+        var creatorWarning = await RefreshCocosCreatorCatalogAsync();
         var warnings = remoteWarnings
             .Prepend(preferencesWarning)
             .Prepend(gitBashWarning)
+            .Prepend(cocosWarning)
+            .Prepend(creatorWarning)
             .OfType<string>()
             .ToArray();
         if (warnings.Length > 0 && _recommendedReleases.Count == 0)
@@ -649,9 +755,7 @@ public partial class MainViewModel : ObservableObject
         _gitBashOperationProblem = null;
         UpdateGitBashProblemText();
         GitBashOperationPercentage = 0;
-        GitBashOperationText = GitBashIsInstalled
-            ? T("等待升级…", "Waiting to upgrade…")
-            : T("等待安装…", "Waiting to install…");
+        GitBashOperationText = T("等待安装…", "Waiting to install…");
         NotifyGitBashProperties();
         try
         {
@@ -748,6 +852,245 @@ public partial class MainViewModel : ObservableObject
             IsGitBashOperating = false;
             await RefreshTasksAsync();
             NotifyGitBashProperties();
+        }
+    }
+
+    private async Task RefreshCocosLocalStatusAsync()
+    {
+        var status = await _cocosDashboard.GetInstalledStatusAsync();
+        CocosIsInstalled = status.IsInstalled;
+        CocosInstalledVersion = status.Version ?? "—";
+        CocosInstallPath = status.InstallDirectory ?? "—";
+        CocosLauncherPath = status.LauncherPath ?? string.Empty;
+        _cocosLocalProblem = status.Problem;
+        UpdateCocosProblemText();
+        NotifyCocosProperties();
+    }
+
+    private async Task<string?> RefreshCocosLatestAsync()
+    {
+        try
+        {
+            _latestCocosRelease = await _cocosDashboard.GetLatestReleaseAsync();
+            CocosLatestVersion = _latestCocosRelease.Version;
+            _cocosRemoteProblem = null;
+            UpdateCocosProblemText();
+            NotifyCocosProperties();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            _latestCocosRelease = null;
+            CocosLatestVersion = T("加载失败", "Unavailable");
+            _cocosRemoteProblem = T(
+                $"Cocos Dashboard 最新版本加载失败：{exception.Message}",
+                $"Unable to load the latest Cocos Dashboard release: {exception.Message}");
+            UpdateCocosProblemText();
+            NotifyCocosProperties();
+            return _cocosRemoteProblem;
+        }
+    }
+
+    private async Task RefreshCocosCreatorLocalStatusAsync()
+    {
+        try
+        {
+            _cocosCreatorInstallations = await _cocosCreator.GetInstalledStatusesAsync();
+            _cocosCreatorLocalProblem = null;
+            UpdateCocosCreatorProblemText();
+            RebuildCocosCreatorVersions();
+        }
+        catch (Exception exception)
+        {
+            _cocosCreatorInstallations = [];
+            _cocosCreatorLocalProblem = T(
+                $"Cocos Creator 本地版本检查失败：{exception.Message}",
+                $"Unable to inspect local Cocos Creator versions: {exception.Message}");
+            UpdateCocosCreatorProblemText();
+            RebuildCocosCreatorVersions();
+        }
+    }
+
+    private async Task<string?> RefreshCocosCreatorCatalogAsync()
+    {
+        try
+        {
+            _cocosCreatorReleases = await _cocosCreator.GetAvailableReleasesAsync();
+            _cocosCreatorCatalogProblem = null;
+            UpdateCocosCreatorProblemText();
+            RebuildCocosCreatorVersions();
+            return null;
+        }
+        catch (Exception exception)
+        {
+            _cocosCreatorReleases = [];
+            _cocosCreatorCatalogProblem = T(
+                $"Cocos Creator 官方版本目录加载失败：{exception.Message}",
+                $"Unable to load the official Cocos Creator catalog: {exception.Message}");
+            UpdateCocosCreatorProblemText();
+            RebuildCocosCreatorVersions();
+            return _cocosCreatorCatalogProblem;
+        }
+    }
+
+    private void RebuildCocosCreatorVersions()
+    {
+        var releases = _cocosCreatorReleases.ToDictionary(
+            release => release.Version,
+            StringComparer.OrdinalIgnoreCase);
+        var installations = _cocosCreatorInstallations.ToDictionary(
+            installation => installation.Version,
+            StringComparer.OrdinalIgnoreCase);
+        var versions = releases.Keys
+            .Concat(installations.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(version => version, RuntimeVersionComparer.Instance)
+            .Select(version => new CocosCreatorVersionRow(
+                releases.GetValueOrDefault(version),
+                installations.GetValueOrDefault(version),
+                installations.GetValueOrDefault(version)?.InstallDirectory
+                    ?? _cocosCreator.GetInstallDirectory(version),
+                releases.ContainsKey(version)
+                    && !installations.ContainsKey(version)
+                    && installations.Keys.Any(installedVersion =>
+                        Version.Parse(version) > Version.Parse(installedVersion)),
+                IsEnglish));
+        Replace(CocosCreatorVersions, versions);
+        OnPropertyChanged(nameof(CocosCreatorEmptyVisibility));
+    }
+
+    public async Task InstallCocosCreatorAsync(CocosCreatorVersionRow row)
+    {
+        if (!row.CanInstall || row.Release is null)
+        {
+            return;
+        }
+
+        row.IsOperating = true;
+        row.OperationPercentage = 0;
+        row.OperationText = T("等待安装…", "Waiting to install…");
+        try
+        {
+            var progress = new Progress<OperationProgress>(value =>
+            {
+                row.OperationPercentage = value.Percentage ?? row.OperationPercentage;
+                row.OperationText = GetCocosCreatorProgressText(value);
+            });
+            if (row.IsUpgrade)
+            {
+                await _cocosCreator.UpgradeAsync(row.Release, progress);
+            }
+            else
+            {
+                await _cocosCreator.InstallAsync(row.Release, progress);
+            }
+            await RefreshCocosCreatorLocalStatusAsync();
+        }
+        catch (Exception exception)
+        {
+            row.OperationText = GetDetailedExceptionMessage(exception);
+        }
+        finally
+        {
+            row.IsOperating = false;
+            await RefreshTasksAsync();
+        }
+    }
+
+    public async Task UninstallCocosCreatorAsync(CocosCreatorVersionRow row)
+    {
+        if (!row.CanUninstall)
+        {
+            return;
+        }
+
+        row.IsOperating = true;
+        row.OperationText = T("正在卸载…", "Uninstalling…");
+        try
+        {
+            await _cocosCreator.UninstallAsync(row.Version);
+            await RefreshCocosCreatorLocalStatusAsync();
+        }
+        catch (Exception exception)
+        {
+            row.OperationText = GetDetailedExceptionMessage(exception);
+        }
+        finally
+        {
+            row.IsOperating = false;
+            await RefreshTasksAsync();
+        }
+    }
+
+    public async Task InstallOrUpgradeCocosAsync()
+    {
+        if (!CanRunCocosAction)
+        {
+            return;
+        }
+
+        IsCocosOperating = true;
+        _cocosOperationProblem = null;
+        UpdateCocosProblemText();
+        CocosOperationPercentage = 0;
+        CocosOperationText = T("等待安装…", "Waiting to install…");
+        NotifyCocosProperties();
+        try
+        {
+            var progress = new Progress<OperationProgress>(value =>
+            {
+                CocosOperationPercentage = value.Percentage ?? CocosOperationPercentage;
+                CocosOperationText = GetCocosProgressText(value);
+                NotifyCocosProperties();
+            });
+            await _cocosDashboard.InstallOrUpgradeLatestAsync(progress);
+            await RefreshCocosLocalStatusAsync();
+            CocosOperationPercentage = 0;
+            CocosOperationText = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _cocosOperationProblem = GetDetailedExceptionMessage(exception);
+            UpdateCocosProblemText();
+            CocosOperationText = T("操作失败", "Operation failed");
+        }
+        finally
+        {
+            IsCocosOperating = false;
+            await RefreshTasksAsync();
+            NotifyCocosProperties();
+        }
+    }
+
+    public async Task UninstallCocosAsync(bool deleteData = false)
+    {
+        if (!CanUseInstalledCocos)
+        {
+            return;
+        }
+
+        IsCocosOperating = true;
+        _cocosOperationProblem = null;
+        UpdateCocosProblemText();
+        CocosOperationText = T("正在卸载…", "Uninstalling…");
+        NotifyCocosProperties();
+        try
+        {
+            await _cocosDashboard.UninstallAsync(new CocosDashboardUninstallOptions(deleteData));
+            await RefreshCocosLocalStatusAsync();
+            CocosOperationText = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            _cocosOperationProblem = GetDetailedExceptionMessage(exception);
+            UpdateCocosProblemText();
+            CocosOperationText = T("卸载失败", "Uninstall failed");
+        }
+        finally
+        {
+            IsCocosOperating = false;
+            await RefreshTasksAsync();
+            NotifyCocosProperties();
         }
     }
 
@@ -850,6 +1193,16 @@ public partial class MainViewModel : ObservableObject
     private async Task InstallRuntimeAsync(RuntimeKind kind, string version)
     {
         var target = new RuntimeTarget(kind, version);
+        var installedVersions = _allManagedRuntimes
+            .Where(item => item.RuntimeKind == kind && !item.IsDeleted)
+            .Select(item => item.Version)
+            .ToArray();
+        var isUpgrade = RuntimeUpgradePolicy.IsUpgradeAvailable(kind, version, installedVersions);
+        var makeCurrent = isUpgrade && _allManagedRuntimes.Any(item =>
+            item.RuntimeKind == kind
+            && item.IsCurrent
+            && !item.IsDeleted
+            && RuntimeUpgradePolicy.IsUpgradeAvailable(kind, version, [item.Version]));
         if (!_installingTargets.Add(target))
         {
             return;
@@ -864,7 +1217,14 @@ public partial class MainViewModel : ObservableObject
         try
         {
             var progress = new Progress<OperationProgress>(value => SetRuntimeProgress(target, value));
-            await _operations.InstallAsync(target, makeCurrent: false, progress);
+            if (isUpgrade)
+            {
+                await _operations.UpgradeAsync(target, makeCurrent, progress);
+            }
+            else
+            {
+                await _operations.InstallAsync(target, makeCurrent: false, progress);
+            }
         }
         catch (Exception exception)
         {
@@ -1003,10 +1363,40 @@ public partial class MainViewModel : ObservableObject
     private async Task UninstallRuntimeAsync(RuntimeKind kind, string version, bool deleteData = false)
     {
         var target = new RuntimeTarget(kind, version);
+        var wasCurrent = _allManagedRuntimes.Any(item =>
+            item.RuntimeKind == kind
+            && item.IsCurrent
+            && string.Equals(item.Version, version, StringComparison.Ordinal));
         ClearRuntimeFeedback(target);
         await RunBusyAsync(async () =>
         {
-            await _operations.UninstallAsync(target, new RuntimeUninstallOptions(deleteData));
+            if (wasCurrent)
+            {
+                await _global.ClearAsync(kind);
+            }
+
+            try
+            {
+                await _operations.UninstallAsync(target, new RuntimeUninstallOptions(deleteData));
+            }
+            catch (Exception operationException) when (wasCurrent)
+            {
+                try
+                {
+                    await _global.UseAsync(kind, version);
+                }
+                catch (Exception rollbackException)
+                {
+                    throw new SoftPilotException(
+                        T(
+                            "卸载失败，且无法恢复原终端默认版本。请运行 spt doctor 检查运行时和 Shell 状态。",
+                            "Uninstall failed and the previous terminal default could not be restored. Run spt doctor to inspect the runtime and shell state."),
+                        new AggregateException(operationException, rollbackException));
+                }
+
+                throw;
+            }
+
             await RefreshCoreAsync();
         }, showSuccessOrFailureDialog: false,
         onError: exception => NotifyUser(
@@ -1134,6 +1524,10 @@ public partial class MainViewModel : ObservableObject
             GetTaskNameBrush(item.Name),
             IsGitOperation(item)
                 ? $"Git@{item.Version ?? "-"}"
+                : IsCocosCreatorOperation(item)
+                    ? $"Cocos Creator@{item.Version ?? "-"}"
+                : IsCocosOperation(item)
+                    ? $"Cocos@{item.Version ?? "-"}"
                 : item.Kind is null
                     ? "-"
                     : $"{GetRuntimeDisplayName(item.Kind.Value)}@{RuntimeVersionDisplayFormatter.Format(item.Kind.Value, item.Version ?? "-")}")));
@@ -1164,7 +1558,10 @@ public partial class MainViewModel : ObservableObject
     {
         var selectedVersion = SelectedRecommendedVersion?.Version;
         var releases = _recommendedReleases.GetValueOrDefault(SelectedRuntimeKind, []);
-        var options = releases.Select(CreateVersionOption).ToArray();
+        var options = releases
+            .OrderByDescending(release => release.Version, RuntimeVersionComparer.Instance)
+            .Select(CreateVersionOption)
+            .ToArray();
         Replace(RecommendedVersions, options);
         SelectedRecommendedVersion = options.FirstOrDefault(option =>
                                          string.Equals(option.Version, selectedVersion, StringComparison.OrdinalIgnoreCase))
@@ -1207,14 +1604,19 @@ public partial class MainViewModel : ObservableObject
         foreach (var release in releases)
         {
             included.Add(release.Version);
+            var exactInstallation = managed.FirstOrDefault(item => string.Equals(
+                item.Version,
+                release.Version,
+                StringComparison.OrdinalIgnoreCase));
             rows.Add(CreateVersionRow(
                 release.Version,
-                managed.FirstOrDefault(item => string.Equals(
-                    item.Version,
-                    release.Version,
-                    StringComparison.OrdinalIgnoreCase)),
+                exactInstallation,
                 release.DownloadUri,
-                release.ReleasePageUri));
+                release.ReleasePageUri,
+                exactInstallation is null && RuntimeUpgradePolicy.IsUpgradeAvailable(
+                    SelectedRuntimeKind,
+                    release.Version,
+                    managed.Select(item => item.Version))));
         }
 
         rows.AddRange(managed
@@ -1223,9 +1625,12 @@ public partial class MainViewModel : ObservableObject
                 item.Version,
                 item,
                 downloadUri: null,
-                releasePageUri: null)));
+                releasePageUri: null,
+                isUpgrade: false)));
 
-        Replace(VersionRows, rows);
+        Replace(VersionRows, rows.OrderByDescending(
+            row => row.Version,
+            RuntimeVersionComparer.Instance));
         OnPropertyChanged(nameof(CatalogLoadingVisibility));
         OnPropertyChanged(nameof(VersionRowsEmptyVisibility));
     }
@@ -1234,9 +1639,10 @@ public partial class MainViewModel : ObservableObject
         string version,
         RuntimeRow? managed,
         Uri? downloadUri,
-        Uri? releasePageUri)
+        Uri? releasePageUri,
+        bool isUpgrade)
     {
-        var line = GetReleaseLine(SelectedRuntimeKind, version);
+        var line = RuntimeUpgradePolicy.GetReleaseLine(SelectedRuntimeKind, version);
         var releaseLine = SelectedRuntimeKind switch
         {
             RuntimeKind.Node => $"Node.js {line} LTS",
@@ -1266,6 +1672,7 @@ public partial class MainViewModel : ObservableObject
             managed?.IsDeleted == true,
             T("安装", "Install"),
             T("卸载", "Uninstall"),
+            isUpgrade,
             downloadUri?.AbsoluteUri,
             releasePageUri?.AbsoluteUri,
             feedback);
@@ -1306,7 +1713,7 @@ public partial class MainViewModel : ObservableObject
         var managed = _allManagedRuntimes.FirstOrDefault(item =>
             item.RuntimeKind == release.Kind
             && string.Equals(item.Version, release.Version, StringComparison.OrdinalIgnoreCase));
-        var line = GetReleaseLine(release.Kind, release.Version);
+        var line = RuntimeUpgradePolicy.GetReleaseLine(release.Kind, release.Version);
         var label = release.Kind switch
         {
             RuntimeKind.Node => $"Node.js {line} LTS — {release.Version}",
@@ -1340,6 +1747,7 @@ public partial class MainViewModel : ObservableObject
         NotifyCommands();
         UpdateServiceRows();
         NotifyGitBashProperties();
+        NotifyCocosProperties();
         try
         {
             await action();
@@ -1367,13 +1775,14 @@ public partial class MainViewModel : ObservableObject
             NotifyCommands();
             UpdateServiceRows();
             NotifyGitBashProperties();
+            NotifyCocosProperties();
         }
     }
 
     private bool CanRun() => !IsBusy && !IsGitConfigurationSaving;
     private bool CanInstall() => !IsBusy && SelectedRecommendedVersion is { IsManaged: false };
     private bool CanUseSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
-    private bool CanUninstallSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false, IsCurrent: false };
+    private bool CanUninstallSelected() => !IsBusy && SelectedRuntime is { IsDeleted: false };
 
     public async Task StartInstalledServiceAsync(InstalledRuntimeRow row)
     {
@@ -1553,14 +1962,6 @@ public partial class MainViewModel : ObservableObject
     private static bool IsServiceRuntime(RuntimeKind kind) =>
         kind is RuntimeKind.Redis or RuntimeKind.MySql;
 
-    private static string GetReleaseLine(RuntimeKind kind, string version)
-    {
-        var parts = version.Split('.');
-        return kind is RuntimeKind.Python or RuntimeKind.MySql && parts.Length >= 2
-            ? $"{parts[0]}.{parts[1]}"
-            : parts[0];
-    }
-
     private void NotifyCommands()
     {
         RefreshCommand.NotifyCanExecuteChanged();
@@ -1589,11 +1990,17 @@ public partial class MainViewModel : ObservableObject
     private string GetTaskName(string name) => name.ToLowerInvariant() switch
     {
         "install" => T("安装", "Install"),
-        "upgrade" => T("升级", "Upgrade"),
+        "upgrade" => T("安装", "Install"),
         "uninstall" => T("卸载", "Uninstall"),
         "git-install" or "git-bash-install" => T("安装", "Install"),
-        "git-upgrade" or "git-bash-upgrade" => T("升级", "Upgrade"),
+        "git-upgrade" or "git-bash-upgrade" => T("安装", "Install"),
         "git-uninstall" or "git-bash-uninstall" => T("卸载", "Uninstall"),
+        "cocos-install" => T("安装", "Install"),
+        "cocos-upgrade" => T("安装", "Install"),
+        "cocos-uninstall" => T("卸载", "Uninstall"),
+        "cocos-creator-install" => T("安装", "Install"),
+        "cocos-creator-upgrade" => T("安装", "Install"),
+        "cocos-creator-uninstall" => T("卸载", "Uninstall"),
         "restore" => T("恢复（历史）", "Restore (history)"),
         _ => name,
     };
@@ -1601,8 +2008,11 @@ public partial class MainViewModel : ObservableObject
     private static Brush GetTaskNameBrush(string name) => name.ToLowerInvariant() switch
     {
         "install" or "upgrade" or "git-install" or "git-upgrade" or "git-bash-install" or "git-bash-upgrade"
+            or "cocos-install" or "cocos-upgrade"
+            or "cocos-creator-install" or "cocos-creator-upgrade"
             => new SolidColorBrush(Microsoft.UI.Colors.ForestGreen),
-        "uninstall" or "git-uninstall" or "git-bash-uninstall"
+        "uninstall" or "git-uninstall" or "git-bash-uninstall" or "cocos-uninstall"
+            or "cocos-creator-uninstall"
             => new SolidColorBrush(Microsoft.UI.Colors.Firebrick),
         _ => new SolidColorBrush(Microsoft.UI.Colors.Gray),
     };
@@ -1611,6 +2021,14 @@ public partial class MainViewModel : ObservableObject
         operation.Kind is null
         && (operation.Name is "install" or "upgrade" or "uninstall"
             || operation.Name.StartsWith("git-", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsCocosOperation(OperationRecord operation) =>
+        operation.Kind is null
+        && operation.Name.StartsWith("cocos-", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCocosCreatorOperation(OperationRecord operation) =>
+        operation.Kind is null
+        && operation.Name.StartsWith("cocos-creator-", StringComparison.OrdinalIgnoreCase);
 
     private string GetEnvironmentActionToolTip(RuntimeKind kind, bool isCurrent)
     {
@@ -1659,6 +2077,34 @@ public partial class MainViewModel : ObservableObject
 
     private static string GetGitEnvironmentCheckName(string name) => name;
 
+    private string GetCocosProgressText(OperationProgress progress) => progress.Stage.ToLowerInvariant() switch
+    {
+        "download" => T("正在下载 Cocos Dashboard…", "Downloading Cocos Dashboard…"),
+        "download-retry" => T(progress.Detail ?? "下载连接失败，正在重试…", "Download connection failed. Retrying…"),
+        "source" => T(progress.Detail ?? "正在切换官方 CDN 连接…", "Switching the official CDN connection…"),
+        "verify" => T("正在验证官方数字签名…", "Verifying the official digital signature…"),
+        "extract" => T("正在解包到暂存目录…", "Extracting into staging…"),
+        "health" => T("正在核对实际版本…", "Verifying the installed version…"),
+        "commit" => T("正在提交受管目录…", "Committing the managed directory…"),
+        "complete" => string.Empty,
+        _ => progress.Detail ?? T("正在处理…", "Working…"),
+    };
+
+    private string GetCocosCreatorProgressText(OperationProgress progress) =>
+        progress.Stage.ToLowerInvariant() switch
+        {
+            "download" => T("正在下载 Cocos Creator…", "Downloading Cocos Creator…"),
+            "download-retry" => T(
+                progress.Detail ?? "下载连接失败，正在重试…",
+                "Download connection failed. Retrying…"),
+            "verify" => T("正在复核 SHA-256…", "Verifying SHA-256…"),
+            "extract" => T("正在安全解包到暂存目录…", "Safely extracting into staging…"),
+            "health" => T("正在核对实际版本与官方签名…", "Verifying version and official signature…"),
+            "commit" => T("正在提交受管版本目录…", "Committing the managed version…"),
+            "complete" => string.Empty,
+            _ => progress.Detail ?? T("正在处理…", "Working…"),
+        };
+
     private void NotifyGitBashProperties()
     {
         string[] properties =
@@ -1684,6 +2130,40 @@ public partial class MainViewModel : ObservableObject
             new[] { _gitBashLocalProblem, _gitBashRemoteProblem, _gitBashOperationProblem }
                 .Append(_gitBashConfigurationProblem)
                 .Where(problem => !string.IsNullOrWhiteSpace(problem)));
+    }
+
+    private void NotifyCocosProperties()
+    {
+        string[] properties =
+        [
+            nameof(CocosPrimaryActionText), nameof(CocosUpdateAvailable),
+            nameof(CocosPrimaryActionVisibility), nameof(CocosInstalledActionsVisibility),
+            nameof(CocosOperationVisibility), nameof(CocosProblemVisibility),
+            nameof(CocosProgressVisibility), nameof(CocosReleasePageUrl), nameof(CocosDownloadUrl),
+            nameof(CocosReleasePageVisibility), nameof(CanRunCocosAction), nameof(CanUseInstalledCocos),
+            nameof(CanLaunchCocos),
+        ];
+        foreach (var property in properties)
+        {
+            OnPropertyChanged(property);
+        }
+    }
+
+    private void UpdateCocosProblemText()
+    {
+        CocosProblemText = string.Join(
+            Environment.NewLine,
+            new[] { _cocosLocalProblem, _cocosRemoteProblem, _cocosOperationProblem }
+                .Where(problem => !string.IsNullOrWhiteSpace(problem)));
+    }
+
+    private void UpdateCocosCreatorProblemText()
+    {
+        CocosCreatorProblemText = string.Join(
+            Environment.NewLine,
+            new[] { _cocosCreatorLocalProblem, _cocosCreatorCatalogProblem }
+                .Where(problem => !string.IsNullOrWhiteSpace(problem)));
+        OnPropertyChanged(nameof(CocosCreatorProblemVisibility));
     }
 
     private void NotifyUser(string title, string message, bool isError, bool autoDismiss = false) =>
@@ -1726,6 +2206,12 @@ public partial class MainViewModel : ObservableObject
             nameof(GitConfigurationSaveText), nameof(GitConfigurationScopeText),
             nameof(GitEnvironmentTitle), nameof(GitCheckItemHeader),
             nameof(GitCheckStatusHeader), nameof(GitCheckResultHeader),
+            nameof(CocosInstalledVersionLabel), nameof(CocosLatestVersionLabel),
+            nameof(CocosInstallPathLabel), nameof(CocosPrimaryActionText),
+            nameof(CocosLaunchText), nameof(CocosUninstallText),
+            nameof(CocosCopyPathToolTip), nameof(CocosDashboardTitle), nameof(CocosCreatorTitle),
+            nameof(CocosCreatorVersionHeader), nameof(CocosCreatorStatusHeader),
+            nameof(CocosCreatorEmptyText),
         ];
         foreach (var property in properties)
         {
@@ -1733,6 +2219,8 @@ public partial class MainViewModel : ObservableObject
         }
 
         NotifyGitBashProperties();
+        NotifyCocosProperties();
+        RebuildCocosCreatorVersions();
     }
 
     private static string GetDetailedExceptionMessage(Exception exception)
@@ -1861,12 +2349,13 @@ public partial class MainViewModel : ObservableObject
         IsModuleEnabled(RuntimeKind.Node),
         IsModuleEnabled(RuntimeKind.Java),
         IsModuleEnabled(RuntimeKind.Python),
-        language ?? SelectedLanguage?.Code ?? "en-US",
+        language ?? SelectedLanguage?.Code ?? "zh-CN",
         GetOrderedModuleKinds(),
         IsModuleEnabled(RuntimeKind.Redis),
         IsModuleEnabled(RuntimeKind.MySql),
         IsModuleEnabled(ModuleKind.Git),
-        IsModuleEnabled(ModuleKind.Toolbox));
+        IsModuleEnabled(ModuleKind.Toolbox),
+        IsModuleEnabled(ModuleKind.Cocos));
 
     private void ReplaceModuleSettings(RuntimeModulePreferences preferences)
     {
@@ -1898,6 +2387,7 @@ public partial class MainViewModel : ObservableObject
         ModuleKind.Redis => "Redis",
         ModuleKind.MySql => "MySQL",
         ModuleKind.Git => "Git",
+        ModuleKind.Cocos => "Cocos",
         ModuleKind.Toolbox => "Toolbox",
         _ => kind.ToString(),
     };
@@ -1910,6 +2400,7 @@ public partial class MainViewModel : ObservableObject
         ModuleKind.Redis => "ms-appx:///Assets/RuntimeIcons/redis.svg",
         ModuleKind.MySql => "ms-appx:///Assets/RuntimeIcons/mysql.svg",
         ModuleKind.Git => "ms-appx:///Assets/RuntimeIcons/git.svg",
+        ModuleKind.Cocos => "ms-appx:///Assets/RuntimeIcons/cocos.svg",
         ModuleKind.Toolbox => "ms-appx:///Assets/RuntimeIcons/toolbox.svg",
         _ => string.Empty,
     };
@@ -1992,6 +2483,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(RedisModuleEnabled));
         OnPropertyChanged(nameof(MySqlModuleEnabled));
         OnPropertyChanged(nameof(GitModuleEnabled));
+        OnPropertyChanged(nameof(CocosModuleEnabled));
         OnPropertyChanged(nameof(ToolboxModuleEnabled));
         OnPropertyChanged(nameof(NodeModuleVisibility));
         OnPropertyChanged(nameof(JavaModuleVisibility));
@@ -1999,6 +2491,7 @@ public partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(RedisModuleVisibility));
         OnPropertyChanged(nameof(MySqlModuleVisibility));
         OnPropertyChanged(nameof(GitModuleVisibility));
+        OnPropertyChanged(nameof(CocosModuleVisibility));
         OnPropertyChanged(nameof(ToolboxModuleVisibility));
     }
 
@@ -2043,6 +2536,7 @@ public sealed class RuntimeVersionRow : ObservableObject
         bool isDeleted,
         string installText,
         string uninstallText,
+        bool isUpgrade,
         string? downloadUrl,
         string? releasePageUrl,
         RuntimeOperationFeedback? feedback)
@@ -2056,6 +2550,7 @@ public sealed class RuntimeVersionRow : ObservableObject
         IsDeleted = isDeleted;
         InstallText = installText;
         UninstallText = uninstallText;
+        IsUpgrade = isUpgrade;
         DownloadUrl = downloadUrl;
         ReleasePageUrl = releasePageUrl;
         _feedback = feedback;
@@ -2074,12 +2569,13 @@ public sealed class RuntimeVersionRow : ObservableObject
     public bool IsDeleted { get; }
     public string InstallText { get; }
     public string UninstallText { get; }
+    public bool IsUpgrade { get; }
     public string? DownloadUrl { get; }
     public string? ReleasePageUrl { get; }
     public bool CanInstall => !IsManaged && _feedback?.IsActive != true;
     public bool CanUse => IsManaged && !IsCurrent && !IsDeleted;
     public bool CanClearGlobal => IsCurrent && !IsDeleted;
-    public bool CanUninstall => IsManaged && !IsCurrent && !IsDeleted;
+    public bool CanUninstall => IsManaged && !IsDeleted;
     public Visibility InstalledVisibility => IsManaged && !IsDeleted ? Visibility.Visible : Visibility.Collapsed;
     public Visibility InstallVisibility => CanInstall ? Visibility.Visible : Visibility.Collapsed;
     public Visibility UseVisibility => CanUse ? Visibility.Visible : Visibility.Collapsed;
@@ -2240,7 +2736,7 @@ public sealed class InstalledRuntimeRow : ObservableObject
         ? $"{_serviceUnavailableText}: {_serviceProblem}"
         : _serviceUnavailableText;
     public bool CanToggleEnvironment => IsManaged;
-    public bool CanUninstall => IsManaged && !IsCurrent;
+    public bool CanUninstall => IsManaged;
     public Visibility SetEnvironmentVisibility => IsManaged && !IsCurrent ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ClearEnvironmentVisibility => IsManaged && IsCurrent ? Visibility.Visible : Visibility.Collapsed;
     public Visibility UninstallVisibility => CanUninstall ? Visibility.Visible : Visibility.Collapsed;

@@ -33,7 +33,7 @@ public sealed class RedisServiceManager : IRedisServiceManager
         _processRunner = processRunner;
         _listenerProcessResolver = listenerProcessResolver;
         _workspaceLock = new WorkspaceOperationLock(layout);
-        _statePath = Path.Combine(layout.DataDirectory, "redis", "service-state.json");
+        _statePath = layout.GetRedisServiceStatePath();
     }
 
     public async Task<RedisServiceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
@@ -78,7 +78,7 @@ public sealed class RedisServiceManager : IRedisServiceManager
                     cancellationToken: cancellationToken)
                 ?? throw new RuntimeNotFoundException(RuntimeKind.Redis, version);
             var health = await _provider.CheckHealthAsync(installation.InstallPath, cancellationToken);
-            if (!health.IsHealthy || !RuntimeVersionMatcher.AreEquivalent(version, health.DetectedVersion))
+            if (!health.IsHealthy || !RuntimeVersionMatcher.AreEquivalent(RuntimeKind.Redis, version, health.DetectedVersion))
             {
                 throw new SoftPilotException(
                     $"Redis {version} 启动前健康检查失败：{health.Error ?? $"实际版本 {health.DetectedVersion}"}");
@@ -475,7 +475,7 @@ public sealed class RedisServiceManager : IRedisServiceManager
             .Where(parts => parts.Length == 2)
             .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.OrdinalIgnoreCase);
         return values.TryGetValue("redis_version", out var actualVersion)
-            && RuntimeVersionMatcher.AreEquivalent(version, actualVersion);
+            && RuntimeVersionMatcher.AreEquivalent(RuntimeKind.Redis, version, actualVersion);
     }
 
     private static string ToRedisPath(string path) =>

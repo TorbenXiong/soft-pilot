@@ -14,14 +14,19 @@ public interface IInstallationLayout
     string TrashDirectory { get; }
     string LogsDirectory { get; }
     string GitDirectory { get; }
+    string CocosDirectory { get; }
+    string CocosCreatorDirectory { get; }
 
     string GetRuntimeDirectory(RuntimeKind kind, string version);
     string GetCurrentLink(RuntimeKind kind);
     string GetTrashDirectory(RuntimeKind kind, string version, DateTimeOffset deletedAt);
     string GetRedisDataDirectory(string version);
     string GetRedisLogPath(string version);
+    string GetRedisServiceStatePath();
     string GetMySqlDataDirectory(string version);
     string GetMySqlLogPath(string version);
     string GetMySqlConfigPath(string version);
+    string GetCocosCreatorDirectory(string version);
+    string GetCocosCreatorDownloadDirectory(string version);
     void EnsureWorkspace();
 }
